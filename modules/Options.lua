@@ -8,7 +8,7 @@ local L = LUF.L
 local oUF = LUF.oUF
 local groupselectvalue, profiledb = "SOLO", {}
 
-local ArenaAndFocusExists = not oUF.isClassic
+local ArenaAndFocusExists = not LUF.isClassic
 
 function getRCCheckerList(unitType, inCombat)
 	local noItems = LUF.db.profile.range.noItems
@@ -1304,7 +1304,7 @@ function LUF:CreateConfig()
 					desc = L["Highlight stealable Buffs"],
 					type = "toggle",
 					order = 12,
-					hidden = function(info) return LUF.oUF.isClassic end,
+					hidden = function(info) return LUF.isClassic end,
 				},
 				buffpos = {
 					name = L["Position"],
@@ -7936,7 +7936,7 @@ function LUF:CreateConfig()
 								name = RAID.."9",
 								type = "header",
 								order = 2.49,
-								hidden = function() return LUF.oUF.isClassic or LUF.db.profile.units.raid.groupBy ~= "CLASS" end,
+								hidden = function() return LUF.isClassic or LUF.db.profile.units.raid.groupBy ~= "CLASS" end,
 							},
 							enabled9 = {
 								name = ENABLE,
@@ -7947,7 +7947,7 @@ function LUF:CreateConfig()
 								disabled = Lockdown,
 								set = function(info, value) LUF.db.profile.units.raid.filters[9] = value LUF:SetupHeader("raid9") LUF:UpdateMovers() end,
 								get = function(info, value) return LUF.db.profile.units.raid.filters[9] end,
-								hidden = function() return LUF.oUF.isClassic or LUF.db.profile.units.raid.groupBy ~= "CLASS" end,
+								hidden = function() return LUF.isClassic or LUF.db.profile.units.raid.groupBy ~= "CLASS" end,
 							},
 							raid9 = {
 								name = L["Anchor To"],
@@ -7958,7 +7958,7 @@ function LUF:CreateConfig()
 								get = function() return LUF.db.profile.units.raid.positions[9].anchorTo end,
 								set = SetAnchorTo,
 								disabled = Lockdown,
-								hidden = function() return LUF.oUF.isClassic or LUF.db.profile.units.raid.groupBy ~= "CLASS" end,
+								hidden = function() return LUF.isClassic or LUF.db.profile.units.raid.groupBy ~= "CLASS" end,
 							},
 							x9 = {
 								name = L["X Position"],
@@ -7970,7 +7970,7 @@ function LUF:CreateConfig()
 								get = function() return tostring(LUF.db.profile.units.raid.positions[9].x) end,
 								set = function(info, value) LUF.db.profile.units.raid.positions[9].x = tonumber(value) LUF:PlaceFrame(LUF.frameIndex["raid9"]) end,
 								disabled = Lockdown,
-								hidden = function() return LUF.oUF.isClassic or LUF.db.profile.units.raid.groupBy ~= "CLASS" end,
+								hidden = function() return LUF.isClassic or LUF.db.profile.units.raid.groupBy ~= "CLASS" end,
 							},
 							y9 = {
 								name = L["Y Position"],
@@ -7982,7 +7982,7 @@ function LUF:CreateConfig()
 								get = function() return tostring(LUF.db.profile.units.raid.positions[9].y) end,
 								set = function(info, value) LUF.db.profile.units.raid.positions[9].y = tonumber(value) LUF:PlaceFrame(LUF.frameIndex["raid9"]) end,
 								disabled = Lockdown,
-								hidden = function() return LUF.oUF.isClassic or LUF.db.profile.units.raid.groupBy ~= "CLASS" end,
+								hidden = function() return LUF.isClassic or LUF.db.profile.units.raid.groupBy ~= "CLASS" end,
 							},
 							slots = {
 								name = L["Bars"],

@@ -27,7 +27,6 @@ Offline units are handled as if they are in range.
 
 local _, ns = ...
 local oUF = ns.oUF
-local RC = LibStub("LibRangeCheck-3.0")
 
 local _FRAMES = {}
 local OnRangeFrame
@@ -47,37 +46,11 @@ local function Update(self, event)
 		element:PreUpdate()
 	end
 
-	-- Always consider the player's own frame in range.
-	if UnitIsUnit(unit, "player") then
-		element.__owner.currRange = 0
-		self:SetAlpha(element.insideAlpha)
-
-		if(element.PostUpdate) then
-			return element:PostUpdate(self, true, true, true)
-		end
-
-		return
-	end
-
 	local inRange, checkedRange = false, false
 	local connected = UnitIsConnected(unit)
 	if connected then
-		local minRange, maxRange = RC:GetRange(unit, true, LUF.db.profile.range.noItems)
-
-		if maxRange then
-			distance = maxRange
-			inRange = distance <= element.range
-			checkedRange = true
-		else
-			-- party/raid units
-			local ir, cr = UnitInRange(unit)
-			if cr then
-				inRange, checkedRange = ir, cr
-				distance = ir and 40 or 1000
-			end
-		end
-
-		element.__owner.currRange = distance
+		inRange = UnitInRange(unit)
+		checkedRange = true
 		self:SetAlpha(inRange and element.insideAlpha or element.outsideAlpha)
 	else
 		self:SetAlpha(element.insideAlpha)

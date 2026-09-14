@@ -78,7 +78,7 @@ local function Update(self, event, unit)
 		icon, duration, expirationTime = select(3,SL:GetSpellLockInfo(unit))
 		if not icon then
 			for i=1, 32 do
-				local name, tmpicon, _, _, tmpduration, tmpexpirationTime, _, _, _, spellId = oUF.LCDUnitAura(unit, i, "HELPFUL")
+				local name, tmpicon, _, _, tmpduration, tmpexpirationTime, _, _, _, spellId = ns.UnitAura(unit, i, "HELPFUL")
 				if not name then break end
 				local prio = LAT.GetAuraInfo(spellId, UnitCanAttack("player",unit))
 				if prio and prio > maxPrio and prio >= PRIO_SILENCE then
@@ -89,7 +89,7 @@ local function Update(self, event, unit)
 				end
 			end
 			for i=1, 16 do
-				local name, tmpicon, _, _, tmpduration, tmpexpirationTime, _, _, _, spellId = oUF.LCDUnitAura(unit, i, "HARMFUL")
+				local name, tmpicon, _, _, tmpduration, tmpexpirationTime, _, _, _, spellId = ns.UnitAura(unit, i, "HARMFUL")
 				if not name then break end
 				local prio = LAT.GetAuraInfo(spellId, UnitCanAttack("player",unit))
 				if prio and prio > maxPrio and prio >= PRIO_SILENCE then

@@ -62,7 +62,7 @@ local function checkDispel(unit, index)
 	while name do
 		if canCure[debuffType] then
 			if found_index == index then
-				return oUF.LCDUnitAura(unit, i, "HARMFUL")
+				return ns.UnitAura(unit, i, "HARMFUL")
 			end
 			found_index = found_index + 1
 		end
@@ -131,7 +131,7 @@ local function checkAura(unit, spells, playeronly)
 			local i, casterunit,_,_,spellID = 1, select(7,UnitAura(unit, 1))
 			while spellID do
 				if spellID == tonumber(spell) and (not playeronly or playeronly and casterunit and UnitIsUnit(casterunit,"player")) then
-					return oUF.LCDUnitAura(unit, i)
+					return ns.UnitAura(unit, i)
 				end
 				i = i + 1
 				casterunit,_,_,spellID = select(7, UnitAura(unit, i))
@@ -139,7 +139,7 @@ local function checkAura(unit, spells, playeronly)
 			i, casterunit,_,_,spellID = 1, select(7,UnitAura(unit, 1, "HARMFUL"))
 			while spellID do
 				if spellID == tonumber(spell) and (not playeronly or playeronly and casterunit and UnitIsUnit(casterunit,"player")) then
-					return oUF.LCDUnitAura(unit, i, "HARMFUL")
+					return ns.UnitAura(unit, i, "HARMFUL")
 				end
 				i = i + 1
 				casterunit,_,_,spellID = select(7, UnitAura(unit, i, "HARMFUL"))
@@ -150,7 +150,7 @@ local function checkAura(unit, spells, playeronly)
 			local lowerSpell = strlower(spell)
 			while spellName do
 				if strmatch(strlower(spellName),lowerSpell) and (not playeronly or playeronly and casterunit and UnitIsUnit(casterunit,"player")) then
-					return oUF.LCDUnitAura(unit, i)
+					return ns.UnitAura(unit, i)
 				end
 				i = i + 1
 				spellName = UnitAura(unit, i)
@@ -160,7 +160,7 @@ local function checkAura(unit, spells, playeronly)
 			casterunit = select(7,UnitAura(unit, 1, "HARMFUL"))
 			while spellName do
 				if strmatch(strlower(spellName),lowerSpell) and (not playeronly or playeronly and casterunit and UnitIsUnit(casterunit,"player")) then
-					return oUF.LCDUnitAura(unit, i, "HARMFUL")
+					return ns.UnitAura(unit, i, "HARMFUL")
 				end
 				i = i + 1
 				spellName = UnitAura(unit, i, "HARMFUL")

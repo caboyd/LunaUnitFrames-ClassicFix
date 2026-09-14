@@ -231,7 +231,7 @@ end
 -- https://github.com/wardz/ClassicCastbars/blob/master/ClassicCastbars/ClassicCastbars.lua#L150
 -- Check UNIT_AURA for applied cast immunites in TBC/Classic Era
 local function CheckCastModifiers(self, unit, ranFromUnitAuraEvent)
-    if not oUF.isClassic and not oUF.isTBC then return end
+    if not ns.isClassic and not ns.isTBC then return end
     local cast = self
 
     -- Always start with our initial boolean state
@@ -489,7 +489,7 @@ local function Enable(self, unit)
         self:RegisterEvent('UNIT_SPELLCAST_FAILED', CastFail)
         self:RegisterEvent('UNIT_SPELLCAST_INTERRUPTED', CastFail)
 		--Retail Only
-		if(oUF.isTBC) then
+		if(ns.isTBC) then
         	self:RegisterEvent('UNIT_SPELLCAST_INTERRUPTIBLE', CastInterruptible)
 			self:RegisterEvent('UNIT_SPELLCAST_NOT_INTERRUPTIBLE', CastInterruptible)
 		end
@@ -535,7 +535,7 @@ local function Disable(self)
 		self:UnregisterEvent('UNIT_SPELLCAST_CHANNEL_UPDATE', CastUpdate)
 		self:UnregisterEvent('UNIT_SPELLCAST_FAILED', CastFail)
 		self:UnregisterEvent('UNIT_SPELLCAST_INTERRUPTED', CastFail)
-		if(oUF.isTBC) then
+		if(ns.isTBC) then
 			self:UnregisterEvent('UNIT_SPELLCAST_INTERRUPTIBLE', CastInterruptible)
 			self:UnregisterEvent('UNIT_SPELLCAST_NOT_INTERRUPTIBLE', CastInterruptible)
 		end

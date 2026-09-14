@@ -79,7 +79,7 @@ local mainHandEnd, mainHandDuration, mainHandCharges, offHandEnd, offHandDuratio
 local weaponEnchantData;
 
 -- Things in this table have a duration other than 30 min
-if oUF.isClassic then 
+if ns.isClassic then 
 	weaponEnchantData = {
 		[2684] = 3600, -- +100 Attack Power vs Undead (60 min)
 		[2685] = 3600, -- +60 Spell Power vs Undead (60 min)
@@ -475,7 +475,7 @@ local function UpdateAuras(self, event, unit)
 		local button
 		if element.buffs then
 			for i=1,(element.maxBuffs or 32) do
-				local name, _, _, _, _, _, caster = oUF.LCDUnitAura(self.unit, i, filter)
+				local name, _, _, _, _, _, caster = ns.UnitAura(self.unit, i, filter)
 				if name or element.forceShow then
 					if element.buffFilter ~= 2 or caster == "player" then
 						updateIcon(element, self.unit, i, currentSlot, filter, false)
@@ -507,7 +507,7 @@ local function UpdateAuras(self, event, unit)
 		filter = "HARMFUL"..(element.debuffFilter == 3 and "|RAID" or "")
 		if element.debuffs then
 			for i=1,(element.maxDebuffs or 40) do
-				local name, _, _, _, _, _, caster = oUF.LCDUnitAura(self.unit, i, filter)
+				local name, _, _, _, _, _, caster = ns.UnitAura(self.unit, i, filter)
 				if name or element.forceShow then
 					if element.debuffFilter ~= 2 or caster == "player" then
 						updateIcon(element, self.unit, i, currentSlot, filter, true)
@@ -879,7 +879,7 @@ end
 local playerFrames = {}
 local function UpdateWeaponEnchants(self, silent)
 	weaponWatchTimer = nil
-	local defaultDuration = oUF.isClassic and 1800 or 3600
+	local defaultDuration = ns.isClassic and 1800 or 3600
 	
 	local hasMainHandEnchant, mainHandExpiration, mainHandChargeNum, mainHandEnchantID, hasOffHandEnchant, offHandExpiration, offHandChargeNum, offHandEnchantId = GetWeaponEnchantInfo()
 	if hasMainHandEnchant then
