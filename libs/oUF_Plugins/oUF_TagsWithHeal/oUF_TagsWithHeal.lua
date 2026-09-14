@@ -206,14 +206,10 @@ local _ENV = {
 	afkStatus = {},
 	feignDeath =  C_Spell.GetSpellName(5384),
 	feigncheck = function(unit)
-		if select(2,UnitClass(unit)) == "HUNTER" then
-			for i=1,32 do
-				local spell = select(10,UnitBuff(unit,i))
-				if not spell then
-					return
-				elseif spell == 5384 then
-					return true
-				end
+		if select(2, UnitClass(unit)) == "HUNTER" then
+			local snap = LUF.AuraCache:Touch(unit)
+			if snap.helpfulByID[5384] then
+				return true
 			end
 		end
 	end,
@@ -428,8 +424,9 @@ local tagStrings = {
 	["nocolor"] = [[function(unit) return "|r" end]],
 
 	["druidform"] = [[function(unit)
-		for i=1,32 do
-			local form = select(10, UnitAura(unit, i, "HELPFUL"))
+		local snap = LUF.AuraCache:Touch(unit)
+		for i = 1, snap.helpfulCount do
+			local form = snap.helpful[i].spellID
 			if DruidForms[form] then
 				return DruidForms[form]
 			end
@@ -578,14 +575,7 @@ local tagStrings = {
 	end]],
 
 	["buffcount"] = [[function(unit)
-		local num = 0
-		while true do
-			if UnitAura(unit, num + 1, "HELPFUL") then
-				num = num + 1
-			else
-				return num
-			end
-		end
+		return LUF.AuraCache:Touch(unit).helpfulCount
 	end]],
 
 	["numheals"] = [[function(unit) return LHC:GetNumHeals(UnitGUID(unit), GetTime() + GetHealTimeFrame()) end]],

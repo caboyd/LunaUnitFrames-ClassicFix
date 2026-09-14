@@ -37,17 +37,7 @@ A default texture will be applied if the widget is a Texture and doesn't have a 
 
 local _, ns = ...
 local oUF = ns.oUF
-
-local playerClass = select(2, UnitClass("player"))
-local canCure = {}
-local cures = {
-	["DRUID"] = {[2782] = {"Curse"}, [2893] = {"Poison"}, [8946] = {"Poison"}},
-	["PRIEST"] = {[528] = {"Disease"}, [552] = {"Disease"}, [527] = {"Magic"}, [988] = {"Magic"}},
-	["PALADIN"] = {[4987] = {"Poison", "Disease", "Magic"}, [1152] = {"Poison", "Disease"}},
-	["SHAMAN"] = {[2870] = {"Disease"}, [526] = {"Poison"}},
-	["MAGE"] = {[475] = {"Curse"}},
-}
-cures = cures[playerClass]
+local AuraCache = ns.AuraCache
 
 local function Update(self, event)
 	local element = self.Highlight
@@ -70,15 +60,15 @@ local function Update(self, event)
 	local isTarget = UnitIsUnit("target", unit)
 	local hasAggro = (UnitThreatSituation(unit) or 0) > 1
 	local showOwn, showAll, hasDebuff, highlightReason = element.debuff == 2, element.debuff == 3
-	if UnitIsFriend(unit, "player") then
-		for i=1, 16 do
-			local name, _, _, auraType = UnitDebuff(unit, i)
-			if( not name ) then break end
-			
-			if( showOwn and canCure[auraType] and UnitCanAssist("player", unit) or (showAll and auraType) ) then
-				hasDebuff = auraType
-				break
+	local snap = AuraCache:Touch(unit)
+	if snap.isFriend then
+		if showOwn and snap.canAssist then
+			local record = snap.dispels[1]
+			if record then
+				hasDebuff = record.debuffType
 			end
+		elseif showAll and snap.firstDebuffType then
+			hasDebuff = snap.firstDebuffType
 		end
 	end
 
@@ -115,28 +105,6 @@ local function Update(self, event)
 	end
 end
 
-local function checkCurableSpells(self, event, arg1)
-	if event == "UNIT_PET" and (arg1 ~= "player" or playerClass ~= "WARLOCK") then return end
-	table.wipe(canCure)
-	
-	if playerClass == "WARLOCK" then
-		if C_Spell.IsSpellUsable(19505) then
-			canCure["Magic"] = true
-		end
-	elseif cures then
-		for spellID, types in pairs(cures) do
-			if( C_SpellBook.IsSpellKnown(spellID) ) then
-				for _, type in pairs(types) do
-					canCure[type] = true
-				end
-			end
-		end
-	else
-		return
-	end
-	Update(self, event, self.unit)
-end
-
 local function Path(self, ...)
 	--[[ Override: Highlight.Override(self, event, ...)
 	Used to completely override the internal update function.
@@ -162,17 +130,15 @@ local function Enable(self)
 		self:RegisterEvent("UNIT_AURA", Path)
 		self:RegisterEvent("UNIT_THREAT_SITUATION_UPDATE", Path)
 		self:RegisterEvent("PLAYER_TARGET_CHANGED", Path, true)
-		
-		self:RegisterEvent("SPELLS_CHANGED", checkCurableSpells, true)
-		self:RegisterEvent("PLAYER_LOGIN", checkCurableSpells, true)
-		self:RegisterEvent("UNIT_PET", checkCurableSpells, true)
+		self:RegisterEvent("SPELLS_CHANGED", Path, true)
+		self:RegisterEvent("UNIT_PET", Path)
 
 		if(element:IsObjectType("Texture") and not element:GetTexture()) then
 			element:SetTexture([[Interface\FriendsFrame\UI-FriendsFrame-HighlightBar-Blue]])
 			element:SetBlendMode("ADD")
 		end
 
-		checkCurableSpells(self)
+		Path(self, "ForceUpdate", self.unit)
 
 		return true
 	end
@@ -187,11 +153,8 @@ local function Disable(self)
 		self:UnregisterEvent("UNIT_AURA", Path)
 		self:UnregisterEvent("UNIT_THREAT_SITUATION_UPDATE", Path)
 		self:UnregisterEvent("PLAYER_TARGET_CHANGED", Path)
-		
-		self:UnregisterEvent("SPELLS_CHANGED", checkCurableSpells)
-
-		self:UnregisterEvent("PLAYER_LOGIN", checkCurableSpells)
-		self:UnregisterEvent("UNIT_PET", checkCurableSpells)
+		self:UnregisterEvent("SPELLS_CHANGED", Path)
+		self:UnregisterEvent("UNIT_PET", Path)
 	end
 end
 

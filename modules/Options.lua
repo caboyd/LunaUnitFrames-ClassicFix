@@ -1,6 +1,7 @@
 local Addon,LUF = ...
 
 local AceConfigDialog = LibStub("AceConfigDialog-3.0")
+local AceGUI = LibStub("AceGUI-3.0")
 local SML = SML or LibStub:GetLibrary("LibSharedMedia-3.0")
 local ACR = LibStub("AceConfigRegistry-3.0", true)
 local RC, RCminor = LibStub("LibRangeCheck-3.0")
@@ -196,6 +197,70 @@ local UnitToFrame = {
 }
 
 
+do
+	local frameTimeType = "LUF_FrameTime"
+	local frameTimeVersion = 6
+	local function formatFrameTime(ms, fps, refreshMs)
+		local fpsText = string.format("%.1f %s", fps, strupper(FPS_ABBR))
+		local frameText = string.format("%s: %.2f %s (%s)", UNITFRAME_LABEL, ms, MILLISECONDS_ABBR, fpsText)
+		if refreshMs then
+			local refreshFps = refreshMs > 0 and (1000 / refreshMs) or 0
+			return string.format("%s\n%s: %.2f %s (%.1f %s)", frameText, REFRESH, refreshMs, MILLISECONDS_ABBR, refreshFps, strupper(FPS_ABBR))
+		end
+		return string.format("%s\n%s: --", frameText, REFRESH)
+	end
+	if (AceGUI:GetWidgetVersion(frameTimeType) or 0) < frameTimeVersion then
+		local methods = {
+			OnAcquire = function(self)
+				self:SetWidth(self.width or 400)
+				self:SetHeight(36)
+				self.lastProfile = debugprofilestop()
+				self.label:SetText(formatFrameTime(0, 0))
+				self.frame:SetScript("OnUpdate", function()
+					local now = debugprofilestop()
+					local ms = now - self.lastProfile
+					self.lastProfile = now
+					if ms < 0 then ms = 0 end
+					local fps = ms > 0 and (1000 / ms) or 0
+					local test = LUF.AuraCache and LUF.AuraCache.test
+					local refreshMs = test and test.active and test.refreshMs
+					self.label:SetText(formatFrameTime(ms, fps, refreshMs))
+				end)
+			end,
+			OnRelease = function(self)
+				self.frame:SetScript("OnUpdate", nil)
+			end,
+			OnWidthSet = function(self, width)
+				self.label:SetWidth(math.max(0, (width or 0) - 16))
+				self:SetHeight(math.max(36, self.label:GetStringHeight() + 4))
+			end,
+			SetText = function() end,
+			SetFontObject = function(self, font)
+				self.label:SetFontObject(font or GameFontHighlight)
+			end,
+			SetImage = function() end,
+			SetImageSize = function() end,
+		}
+
+		local function Constructor()
+			local frame = CreateFrame("Frame", frameTimeType .. AceGUI:GetNextWidgetNum(frameTimeType), UIParent)
+			frame:SetHeight(36)
+			local label = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+			label:SetPoint("LEFT", 16, 0)
+			label:SetPoint("RIGHT", 0, 0)
+			label:SetJustifyH("LEFT")
+			label:SetJustifyV("TOP")
+			local widget = { frame = frame, label = label, type = frameTimeType }
+			for name, func in pairs(methods) do
+				widget[name] = func
+			end
+			return AceGUI:RegisterAsWidget(widget)
+		end
+
+		AceGUI:RegisterWidgetType(frameTimeType, Constructor, frameTimeVersion)
+	end
+end
+
 function LUF:CreateConfig()
 	if self.configCreated then return end
 	self.configCreated = true
@@ -269,6 +334,45 @@ function LUF:CreateConfig()
 
 	local function getGeneral(info)
 		return LUF.db.profile[info[#info]]
+	end
+
+	local function setLockedOption(info, value)
+		setGeneral(info, value)
+		if value and LUF.AuraCache and LUF.AuraCache.test.active then
+			LUF.AuraCache.test.Stop()
+		end
+		LUF:UpdateMovers()
+	end
+
+	local function setPreviewAurasOption(info, value)
+		setGeneral(info, value)
+		LUF:ReloadAll()
+	end
+
+	local function auraTestDisabled()
+		return LUF.InCombatLockdown or LUF.db.profile.locked
+	end
+
+	local function anyAuraTestType()
+		local profile = LUF.db.profile
+		return profile.auratestBuffs or profile.auratestDebuffs or profile.auratestDispels
+	end
+
+	local function refreshAuraTest()
+		if not (LUF.AuraCache and LUF.AuraCache.test.active) then return end
+		if anyAuraTestType() then
+			LUF.AuraCache.test.Refresh()
+		else
+			LUF.AuraCache.test.Stop()
+		end
+	end
+
+	local function setAuraTestOption(info, value)
+		setGeneral(info, value)
+		if info[#info] == "auratestDebuffs" and not value then
+			LUF.db.profile.auratestDispels = false
+		end
+		refreshAuraTest()
 	end
 
 	local function setEnableUnit(info, value)
@@ -1130,7 +1234,7 @@ function LUF:CreateConfig()
 					order = 3,
 				},
 				type = {
-					name = L["Type"],
+					name = TYPE,
 					desc = L["Portrait type"],
 					type = "select",
 					order = 4,
@@ -1213,7 +1317,7 @@ function LUF:CreateConfig()
 			},
 		},
 		["auras"] = {
-			name = L["Auras"],
+			name = AURAS,
 			type = "group",
 			order = 11,
 			--inline = true,
@@ -3169,8 +3273,8 @@ function LUF:CreateConfig()
 							values = {["LEFT"] = L["Left"], ["RIGHT"] = L["Right"]},
 						},
 						type = {
-							name = L["Type"],
-							desc = L["Type"],
+							name = TYPE,
+							desc = TYPE,
 							type = "select",
 							order = 3,
 							hidden = function(info) return (info[1] ~= "player" and info[1] ~= "pet") end,
@@ -3368,7 +3472,7 @@ function LUF:CreateConfig()
 							step = 1,
 						},
 						type = {
-							name = L["Type"],
+							name = TYPE,
 							desc = L["What the indicator should display."],
 							type = "select",
 							order = 3,
@@ -3439,7 +3543,7 @@ function LUF:CreateConfig()
 							step = 1,
 						},
 						type = {
-							name = L["Type"],
+							name = TYPE,
 							desc = L["What the indicator should display."],
 							type = "select",
 							order = 3,
@@ -3510,7 +3614,7 @@ function LUF:CreateConfig()
 							step = 1,
 						},
 						type = {
-							name = L["Type"],
+							name = TYPE,
 							desc = L["What the indicator should display."],
 							type = "select",
 							order = 3,
@@ -3581,7 +3685,7 @@ function LUF:CreateConfig()
 							step = 1,
 						},
 						type = {
-							name = L["Type"],
+							name = TYPE,
 							desc = L["What the indicator should display."],
 							type = "select",
 							order = 3,
@@ -3652,7 +3756,7 @@ function LUF:CreateConfig()
 							step = 1,
 						},
 						type = {
-							name = L["Type"],
+							name = TYPE,
 							desc = L["What the indicator should display."],
 							type = "select",
 							order = 3,
@@ -3723,7 +3827,7 @@ function LUF:CreateConfig()
 							step = 1,
 						},
 						type = {
-							name = L["Type"],
+							name = TYPE,
 							desc = L["What the indicator should display."],
 							type = "select",
 							order = 3,
@@ -3794,7 +3898,7 @@ function LUF:CreateConfig()
 							step = 1,
 						},
 						type = {
-							name = L["Type"],
+							name = TYPE,
 							desc = L["What the indicator should display."],
 							type = "select",
 							order = 3,
@@ -3865,7 +3969,7 @@ function LUF:CreateConfig()
 							step = 1,
 						},
 						type = {
-							name = L["Type"],
+							name = TYPE,
 							desc = L["What the indicator should display."],
 							type = "select",
 							order = 3,
@@ -3936,7 +4040,7 @@ function LUF:CreateConfig()
 							step = 1,
 						},
 						type = {
-							name = L["Type"],
+							name = TYPE,
 							desc = L["What the indicator should display."],
 							type = "select",
 							order = 3,
@@ -4569,7 +4673,7 @@ function LUF:CreateConfig()
 						name = function()
 							local text = "Luna Unit Frames by "..C_AddOns.GetAddOnMetadata("LunaUnitFrames", "Author").."\nDonate: "..C_AddOns.GetAddOnMetadata("LunaUnitFrames", "X-Donate").."\n".."Version: "..LUF.version
 							if LUF.loadTimeFrame1Ms and LUF.loadTimeFrame2Ms then
-								text = text.."\n"..string.format(L["Load time: %.1f ms (frame 1: %.1f ms, frame 2: %.1f ms)"], LUF.loadTimeMs or 0, LUF.loadTimeFrame1Ms, LUF.loadTimeFrame2Ms)
+								text = text.."\n"..string.format("%s %.1f %s (%s 1: %.1f %s, %s 2: %.1f %s)", TIME_ELAPSED, LUF.loadTimeMs or 0, MILLISECONDS_ABBR, UNITFRAME_LABEL, LUF.loadTimeFrame1Ms, MILLISECONDS_ABBR, UNITFRAME_LABEL, LUF.loadTimeFrame2Ms, MILLISECONDS_ABBR)
 							end
 							return text
 						end,
@@ -4584,20 +4688,20 @@ function LUF:CreateConfig()
 						order = 3,
 					},
 					locked = {
-						name = L["Lock"],
+						name = LOCK,
 						desc = LOCK_FOCUS_FRAME,
 						type = "toggle",
 						order = 4,
 						disabled = Lockdown,
-						set = function(info, value) setGeneral(info, value) LUF:UpdateMovers() end,
+						set = setLockedOption,
 					},
 					previewauras = {
-						name = L["Preview Auras"],
-						desc = L["Show the maximum Auras in preview mode"],
+						name = PREVIEW .. " " .. AURAS,
+						desc = MAXIMUM .. " " .. AURAS,
 						type = "toggle",
 						order = 5,
 						disabled = Lockdown,
-						set = function(info, value) setGeneral(info, value) LUF:ReloadAll() end
+						set = setPreviewAurasOption,
 					},
 					tooltipCombat = {
 						name = L["Tooltip in Combat"],
@@ -4634,18 +4738,18 @@ function LUF:CreateConfig()
 						name = L["Fontshadow"],
 						desc = L["Display a shadow behind the text"],
 						type = "toggle",
-						order = 10,
+						order = 11,
 						set = function(info, value) setGeneral(info, value) LUF:ReloadAll() end,
 					},
 					fontoutline = {
 						name = L["Fontoutline"],
 						desc = L["Display an outline around the text"],
 						type = "toggle",
-						order = 11,
+						order = 12,
 						set = function(info, value) setGeneral(info, value) LUF:ReloadAll() end,
 					},
 					auraborderType = {
-						order = 12,
+						order = 13,
 						type = "select",
 						name = L["Aura border"],
 						values = {["none"] = NONE, ["blizzard"] = "Blizzard", ["light"] = L["Light"], ["dark"] = L["Dark"], ["black"] = L["Black"], ["light-thin"] = L["Light thin"], ["dark-thin"] = L["Dark thin"], ["black-thin"] = L["Black thin"]},
@@ -4655,7 +4759,7 @@ function LUF:CreateConfig()
 						name = L["Heal prediction timeframe"],
 						desc = L["Set how long into the future heals are predicted."],
 						type = "range",
-						order = 13,
+						order = 14,
 						min = 3,
 						max = 21,
 						step = 0.5,
@@ -4665,21 +4769,21 @@ function LUF:CreateConfig()
 						name = L["Blizz Heal Prediction"],
 						desc = L["Use Blizzard heal prediction for direct heals"] ,
 						type = "toggle",
-						order = 14,
+						order = 15,
 						set = function(info, value) setGeneral(info, value) LUF:LoadoUFSettings() LUF:ReloadAll() end,
 					},
 					disablehots = {
 						name = L["Disable hots"],
 						desc = L["Disable hots in heal prediction"],
 						type = "toggle",
-						order = 15,
+						order = 16,
 						set = function(info, value) setGeneral(info, value) LUF:LoadoUFSettings() LUF:ReloadAll() end,
 					},
 					omnicc = {
 						name = L["Disable OmniCC"],
 						desc = L["Prevent OmniCC from putting numbers on cooldown animations (Requires UI reload)"],
 						type = "toggle",
-						order = 16,
+						order = 17,
 						disabled = Lockdown,
 						set = function(info, value) setGeneral(info, value) LUF:ReloadAll() end,
 					},
@@ -4687,12 +4791,12 @@ function LUF:CreateConfig()
 						name = L["Disable Blizzard cooldown count"],
 						desc = L["Prevent the default UI from putting numbers on cooldown animations"],
 						type = "toggle",
-						order = 17,
+						order = 18,
 						disabled = Lockdown,
 						set = function(info, value) setGeneral(info, value) LUF:ReloadAll() end,
 					},
 					strata = {
-						order = 18,
+						order = 19,
 						type = "select",
 						name = "Strata",
 						values = {["BACKGROUND"] = "BACKGROUND", ["LOW"] = "LOW", ["MEDIUM"] = "MEDIUM", ["HIGH"] = "HIGH", ["DIALOG"] = "DIALOG", ["FULLSCREEN"] = "FULLSCREEN", ["FULLSCREEN_DIALOG"] = "FULLSCREEN_DIALOG", ["TOOLTIP"] = "TOOLTIP"},
@@ -4702,13 +4806,13 @@ function LUF:CreateConfig()
 					headerRange = {
 						name = L["Range"],
 						type = "header",
-						order = 19,
+						order = 20,
 					},
 					range = {
 						name = L["Distance"],
 						desc = L["Distance to measure"] .. "\nLibRangeCheck-3.0." .. RCminor,
 						type = "range",
-						order = 20,
+						order = 21,
 						min = 10,        -- minimum value
 						max = 100,       -- maximum value
 						step = 1,        -- increment step
@@ -4719,7 +4823,7 @@ function LUF:CreateConfig()
 					rangeNoItems = {
 						name = L["Distance"].. " ".. TYPE ,
 						type = "select",
-						order = 21,
+						order = 22,
 						values = {[true] = L["Spell based"], [false] = L["Spell based"].. " / " .. ITEMS .. " (" .. SLOW .. ")"},
 						get = function(info) return LUF.db.profile.range.noItems end, 
 						set = function(info, value) LUF.db.profile.range.noItems = value LUF:ReloadAll() end,
@@ -4728,12 +4832,144 @@ function LUF:CreateConfig()
 						name = OPACITY,
 						desc = L["Set the alpha."],
 						type = "range",
-						order = 22,
+						order = 23,
 						min = 0,
 						max = 1,
 						step = 0.01,
 						get = function(info) return LUF.db.profile.range.alpha end,
 						set = function(info, value) LUF.db.profile.range.alpha = value LUF:ReloadAll() end,
+					},
+				},
+			},
+			testing = {
+				name = TEST_BUILD,
+				type = "group",
+				order = 30,
+				get = getGeneral,
+				set = setGeneral,
+				args = {
+					description = {
+						name = UNLOCK_FRAME .. "\n" .. PREVIEW .. " " .. AURAS,
+						type = "description",
+						order = 1,
+						width = "full",
+					},
+					locked = {
+						name = LOCK,
+						desc = LOCK_FOCUS_FRAME,
+						type = "toggle",
+						order = 2,
+						disabled = Lockdown,
+						set = setLockedOption,
+					},
+					frametime = {
+						name = " ",
+						type = "description",
+						dialogControl = "LUF_FrameTime",
+						fontSize = "medium",
+						order = 10,
+						width = "full",
+					},
+					auratestHeader = {
+						name = TEST_BUILD .. " " .. AURAS,
+						type = "header",
+						width = "double",
+						order = 90,
+					},
+					auratest = {
+						name = TEST_BUILD .. " " .. AURAS,
+						desc = PERFORMANCE_BUILD .. "\n" .. UNLOCK_FRAME,
+						type = "toggle",
+						order = 91,
+						disabled = auraTestDisabled,
+						get = getGeneral,
+						set = function(info, value)
+							if value then
+								if InCombatLockdown() then
+									LUF:Print(ERR_NOT_IN_COMBAT)
+									return
+								end
+								if not anyAuraTestType() then
+									LUF:Print(ENABLE .. " " .. SHOW_BUFFS .. " / " .. SHOW_DEBUFFS)
+									return
+								end
+								if not (LUF.AuraCache and LUF.AuraCache.test.Start()) then return end
+								setGeneral(info, true)
+							else
+								setGeneral(info, false)
+								if LUF.AuraCache then
+									LUF.AuraCache.test.Stop()
+								end
+							end
+						end,
+					},
+					auratestBuffs = {
+						name = SHOW_BUFFS,
+						desc = AURAS,
+						type = "toggle",
+						order = 92,
+						disabled = auraTestDisabled,
+						set = setAuraTestOption,
+					},
+					auratestDebuffs = {
+						name = SHOW_DEBUFFS,
+						desc = AURAS,
+						type = "toggle",
+						order = 93,
+						disabled = auraTestDisabled,
+						set = setAuraTestOption,
+					},
+					auratestDispels = {
+						name = SHOW_DISPELLABLE_DEBUFFS_TEXT,
+						desc = DISPLAY_ONLY_DISPELLABLE_DEBUFFS,
+						type = "toggle",
+						order = 94,
+						disabled = function()
+							return auraTestDisabled() or not LUF.db.profile.auratestDebuffs
+						end,
+						set = setAuraTestOption,
+					},
+					auratestUseFrameMax = {
+						name = MAXIMUM,
+						desc = BUFFOPTIONS_LABEL,
+						type = "toggle",
+						order = 95,
+						disabled = auraTestDisabled,
+						set = setAuraTestOption,
+					},
+					auratestMaxBuffs = {
+						name = SHOW_BUFFS,
+						desc = MAXIMUM .. " " .. SHOW_BUFFS,
+						type = "range",
+						order = 96,
+						min = 1,
+						max = 32,
+						step = 1,
+						disabled = function()
+							return auraTestDisabled() or LUF.db.profile.auratestUseFrameMax
+						end,
+						set = setAuraTestOption,
+					},
+					auratestMaxDebuffs = {
+						name = SHOW_DEBUFFS,
+						desc = MAXIMUM .. " " .. SHOW_DEBUFFS,
+						type = "range",
+						order = 97,
+						min = 1,
+						max = 40,
+						step = 1,
+						disabled = function()
+							return auraTestDisabled() or LUF.db.profile.auratestUseFrameMax
+						end,
+						set = setAuraTestOption,
+					},
+					auratestRefreshAuras = {
+						name = REFRESH .. " " .. AURAS,
+						desc = REFRESH,
+						type = "toggle",
+						order = 98,
+						disabled = auraTestDisabled,
+						set = setAuraTestOption,
 					},
 				},
 			},
@@ -6838,7 +7074,7 @@ function LUF:CreateConfig()
 								desc = L["Hide while in a raid group."],
 								type = "select",
 								order = 2.9,
-								values = {["never"] = L["Never"],["5man"] = L["Raid > 5 man"],["always"] = L["Any Raid"]},
+								values = {["never"] = NEVER,["5man"] = L["Raid > 5 man"],["always"] = L["Any Raid"]},
 								set = setHideRaid,
 								disabled = Lockdown,
 							},
@@ -7085,7 +7321,7 @@ function LUF:CreateConfig()
 								desc = string.format(L["This is set through %s options."],PARTY),
 								type = "select",
 								order = 2.9,
-								values = {["never"] = L["Never"],["5man"] = L["Raid > 5 man"],["always"] = L["Any Raid"]},
+								values = {["never"] = NEVER,["5man"] = L["Raid > 5 man"],["always"] = L["Any Raid"]},
 								get = function() return LUF.db.profile.units.party.hideraid end,
 								set = setHideRaid,
 								disabled = true,
@@ -7301,7 +7537,7 @@ function LUF:CreateConfig()
 								desc = string.format(L["This is set through %s options."],PARTY),
 								type = "select",
 								order = 2.9,
-								values = {["never"] = L["Never"],["5man"] = L["Raid > 5 man"],["always"] = L["Any Raid"]},
+								values = {["never"] = NEVER,["5man"] = L["Raid > 5 man"],["always"] = L["Any Raid"]},
 								get = function() return LUF.db.profile.units.party.hideraid end,
 								set = setHideRaid,
 								disabled = true,
@@ -10384,7 +10620,7 @@ function LUF:CreateConfig()
 						type = "select",
 						order = 4,
 						hidden = function() return LUF.db.char.switchtype ~= "GROUP" end,
-						values = {["RAID40"]=L["Raid40"],["RAID25"]=L["Raid25"],["RAID20"]=L["Raid20"],["RAID15"]=L["Raid15"],["RAID10"]=L["Raid10"],["RAID5"]=L["Raid5"],["PARTY"]=PARTY,["SOLO"]=L["Solo"]},
+						values = {["RAID40"]=L["Raid40"],["RAID25"]=L["Raid25"],["RAID20"]=L["Raid20"],["RAID15"]=L["Raid15"],["RAID10"]=L["Raid10"],["RAID5"]=L["Raid5"],["PARTY"]=PARTY,["SOLO"]=SOLO},
 						get = function(info) return groupselectvalue end,
 						set = function(info, value) groupselectvalue = value end,
 					},
@@ -10475,6 +10711,7 @@ function LUF:CreateConfig()
 	AceConfigDialog:AddToBlizOptions(Addon, L["Hide Blizzard"], Addon, "hidden")
 	AceConfigDialog:AddToBlizOptions(Addon, L["Tag Help"], Addon, "help")
 	AceConfigDialog:AddToBlizOptions(Addon, L["Auto Profiles"], Addon, "autoprofiles")
+	AceConfigDialog:AddToBlizOptions(Addon, TEST_BUILD, Addon, "testing")
 	AceConfigDialog:AddToBlizOptions(Addon, L["Profiles"], Addon, "profile")
 
 	AceConfigDialog:SetDefaultSize(Addon, 895, 570)
@@ -10501,7 +10738,7 @@ SlashCmdList["LUNAUF"] = function(msg)
 	end
 
 	LUF:CreateConfig()
-	AceConfigDialog:Open("LunaUnitFrames")
+	AceConfigDialog:Open(Addon)
 end
 
 -- Build options the first time Interface Options is opened, not at login.

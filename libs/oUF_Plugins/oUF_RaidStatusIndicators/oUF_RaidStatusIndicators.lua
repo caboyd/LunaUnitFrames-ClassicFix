@@ -38,82 +38,142 @@ RaidStatusIndicators - A `table` containing frames with a .texture to show the s
 
 local _, ns = ...
 local oUF = ns.oUF
+local AuraCache = ns.AuraCache
 
 local Vex = LibStub("LibVexation-1.0")
 
-local playerClass = select(2, UnitClass("player"))
-local canCure = {}
-local cures = {
-	["DRUID"] = {[2782] = {"Curse"}, [2893] = {"Poison"}, [8946] = {"Poison"}},
-	["PRIEST"] = {[528] = {"Disease"}, [552] = {"Disease"}, [527] = {"Magic"}, [988] = {"Magic"}},
-	["PALADIN"] = {[4987] = {"Poison", "Disease", "Magic"}, [1152] = {"Poison", "Disease"}},
-	["SHAMAN"] = {[2870] = {"Disease"}, [526] = {"Poison"}},
-	["MAGE"] = {[475] = {"Curse"}},
-}
-cures = cures[playerClass]
+local WHITE_TEX = [[Interface\Buttons\WHITE8X8]]
 
---Returns the dispel found at the given index defaults to the first one
-local function checkDispel(unit, index)
-	if not UnitCanAssist("player", unit) then return end
-	index = index or 1
-	local i, found_index = 1, 1;
-
-	local name, _, _, debuffType = UnitDebuff(unit, i)
-	while name do
-		if canCure[debuffType] then
-			if found_index == index then
-				return ns.UnitAura(unit, i, "HARMFUL")
-			end
-			found_index = found_index + 1
+local function compileAuraEntries(nameID)
+	local compiled = { n = 0, entries = {} }
+	for _, spell in ipairs(nameID) do
+		local id = tonumber(spell)
+		if id then
+			compiled.n = compiled.n + 1
+			compiled.entries[compiled.n] = { id = id }
+		elseif type(spell) == "string" and spell ~= "" then
+			compiled.n = compiled.n + 1
+			compiled.entries[compiled.n] = { lower = strlower(spell) }
 		end
-		i = i + 1
-		name, _, _, debuffType = UnitDebuff(unit, i)
 	end
+	return compiled
 end
 
-local function isManaUser(unit)
-	local unitClass = select(2, UnitClass(unit))
-	if unitClass == "ROGUE" or unitClass == "WARRIOR" then
-		return false
-	else
-		return true
-	end
-end
-
-local function checkMissingBuff(unit, spells)
-	local found, missingSpell
-	for _, spellGroup in ipairs(spells) do
-		-- Allow "Arcane Intellect[mana]/Arcane Brilliance[mana]"
-		-- Should only show as missing if both are missing.
-		-- Should only check mana users.
---		local localSpells = {strsplit("/",spellGroup)}
-		for _,spell in ipairs(spellGroup) do
+local function compileMissingEntries(nameID)
+	local compiled = { groups = {} }
+	for _, spellGroup in ipairs(nameID) do
+		local group = { n = #spellGroup }
+		compiled.groups[#compiled.groups + 1] = group
+		for j, spell in ipairs(spellGroup) do
+			local manaOnly = false
 			if strfind(spell, "%[mana%]") then
 				spell = spell:gsub("%[mana%]", "")
-				if not isManaUser(unit) then
-					found = true
-				end
+				manaOnly = true
+			end
+			local spellInfo = C_Spell.GetSpellInfo(spell)
+			local spellID = tonumber(spell) or (spellInfo and spellInfo.spellID)
+			group[j] = {
+				id = spellID,
+				unresolvable = not spellID,
+				manaOnly = manaOnly,
+				missingName = spell,
+			}
+		end
+	end
+	return compiled
+end
+
+local function ensureCompiled(indicator)
+	if indicator._compiled and indicator._compileGen == AuraCache.generation then
+		return indicator._compiled
+	end
+	if indicator.type == "aura" or indicator.type == "ownaura" then
+		if indicator.nameID then
+			indicator._compiled = compileAuraEntries(indicator.nameID)
+		end
+	elseif indicator.type == "missing" and indicator.nameID then
+		indicator._compiled = compileMissingEntries(indicator.nameID)
+	end
+	indicator._compileGen = AuraCache.generation
+	return indicator._compiled
+end
+
+local function rebuildBuckets(element)
+	element._threat = element._threat or {}
+	element._aura = element._aura or {}
+	for i = #element._threat, 1, -1 do element._threat[i] = nil end
+	for i = #element._aura, 1, -1 do element._aura[i] = nil end
+	for _, indicator in pairs(element) do
+		if type(indicator) == "table" and indicator.type then
+			if indicator.type == "aggro" or indicator.type == "legacythreat" then
+				element._threat[#element._threat + 1] = indicator
+			elseif indicator.type == "aura" or indicator.type == "ownaura"
+				or indicator.type == "missing" or indicator.type == "dispel" then
+				element._aura[#element._aura + 1] = indicator
+			end
+		end
+	end
+	element._bucketsDirty = false
+end
+
+local function findAuraRecord(snap, entry, playeronly)
+	if not entry then return end
+	if entry.id then
+		if playeronly then
+			return snap.helpfulByIDPlayer[entry.id] or snap.harmfulByIDPlayer[entry.id]
+		end
+		return snap.helpfulByID[entry.id] or snap.harmfulByID[entry.id]
+	end
+	if entry.lower and entry.lower ~= "" then
+		for i = 1, snap.helpfulCount do
+			local record = snap.helpful[i]
+			local lowerName = record and record.lowerName
+			if lowerName and strmatch(lowerName, entry.lower) and (not playeronly or record.isPlayer) then
+				return record
+			end
+		end
+		for i = 1, snap.harmfulCount do
+			local record = snap.harmful[i]
+			local lowerName = record and record.lowerName
+			if lowerName and strmatch(lowerName, entry.lower) and (not playeronly or record.isPlayer) then
+				return record
+			end
+		end
+	end
+end
+
+local function checkAuraSnap(snap, compiled, playeronly)
+	if not compiled then return end
+	for i = 1, compiled.n do
+		local record = findAuraRecord(snap, compiled.entries[i], playeronly)
+		if record then
+			return record
+		end
+	end
+end
+
+local function checkDispelSnap(snap, index)
+	if not snap.canAssist then return end
+	index = index or 1
+	if index < 1 or index > (snap.dispelCount or 0) then return end
+	return snap.dispels[index]
+end
+
+local function checkMissingSnap(snap, compiled)
+	if not compiled then return end
+	local found, missingSpell
+	for _, group in ipairs(compiled.groups) do
+		for j = 1, group.n do
+			local entry = group[j]
+			if entry.manaOnly and not snap.isManaUser then
+				found = true
 			end
 			if not found then
-				missingSpell = spell
-				local spellInfo = C_Spell.GetSpellInfo(spell)
-				local spellID = tonumber(spell) or (spellInfo and spellInfo.spellID)
-
-				if not spellID then
+				missingSpell = entry.missingName
+				if entry.unresolvable then
 					found = true
-				else
-					local i = 1
-					local aura = C_UnitAuras.GetAuraDataByIndex(unit, i)
-
-					while aura do
-						if aura.spellId == spellID then
-							found = true
-							break
-						end
-
-						i = i + 1
-						aura = C_UnitAuras.GetAuraDataByIndex(unit, i)
-					end
+				elseif snap.helpfulByID[entry.id] then
+					found = true
 				end
 			end
 		end
@@ -125,255 +185,198 @@ local function checkMissingBuff(unit, spells)
 	end
 end
 
-local function checkAura(unit, spells, playeronly)
-	for k,spell in ipairs(spells) do
-		if tonumber(spell) then
-			local i, casterunit,_,_,spellID = 1, select(7,UnitAura(unit, 1))
-			while spellID do
-				if spellID == tonumber(spell) and (not playeronly or playeronly and casterunit and UnitIsUnit(casterunit,"player")) then
-					return ns.UnitAura(unit, i)
-				end
-				i = i + 1
-				casterunit,_,_,spellID = select(7, UnitAura(unit, i))
+local function setShown(indicator, shown)
+	indicator._shown = shown
+	if shown then
+		indicator:Show()
+	else
+		indicator:Hide()
+	end
+end
+
+local function setTexture(indicator, tex)
+	if indicator._tex ~= tex then
+		indicator._tex = tex
+		indicator.texture:SetTexture(tex)
+	end
+end
+
+local function setVertexColor(indicator, r, g, b)
+	if indicator._r ~= r or indicator._g ~= g or indicator._b ~= b then
+		indicator._r, indicator._g, indicator._b = r, g, b
+		indicator.texture:SetVertexColor(r, g, b)
+	end
+end
+
+local function setCooldown(indicator, shown, start, duration)
+	if indicator._cdShown ~= shown then
+		indicator._cdShown = shown
+		if shown then
+			indicator.cd:Show()
+		else
+			indicator.cd:Hide()
+		end
+	end
+	if shown and (indicator._cdStart ~= start or indicator._cdDur ~= duration) then
+		indicator._cdStart = start
+		indicator._cdDur = duration
+		indicator.cd:SetCooldown(start, duration)
+	end
+end
+
+local function setCount(indicator, text)
+	if indicator._countText ~= text then
+		indicator._countText = text
+		indicator.count:Show()
+		indicator.count:SetText(text)
+	end
+end
+
+local function setDispelColor(indicator, debuffType)
+	local color = oUF.colors.dispel[debuffType]
+	setTexture(indicator, WHITE_TEX)
+	if color then
+		setVertexColor(indicator, color[1], color[2], color[3])
+	else
+		setVertexColor(indicator, 0, 0, 0)
+	end
+end
+
+local function paintRecord(indicator, record, withCount, hideCountdown)
+	if not record then
+		setShown(indicator, false)
+		return false
+	end
+	setShown(indicator, true)
+	if indicator.showTexture then
+		setTexture(indicator, record.icon)
+		setVertexColor(indicator, 1, 1, 1)
+	else
+		setDispelColor(indicator, record.debuffType)
+	end
+	if indicator.timer then
+		setCooldown(indicator, true, record.expirationTime - record.duration, record.duration)
+	else
+		setCooldown(indicator, false)
+	end
+	if hideCountdown then
+		indicator.cd:SetHideCountdownNumbers(true)
+	end
+	if withCount then
+		setCount(indicator, record.count > 1 and record.count or "")
+	end
+	return true
+end
+
+local function updateThreatIndicators(self, element, unit)
+	local hasAggro = UnitThreatSituation(UnitExists(unit) and unit or "player")
+	local legacyThreat = Vex and Vex:GetUnitAggroByUnitId(unit)
+
+	for _, indicator in ipairs(element._threat) do
+		if indicator.type == "aggro" then
+			if hasAggro and hasAggro > 0 then
+				setShown(indicator, true)
+				setCooldown(indicator, false)
+				setTexture(indicator, WHITE_TEX)
+				local color = hasAggro == 1 and oUF.colors.reaction[4] or oUF.colors.reaction[1]
+				setVertexColor(indicator, color[1], color[2], color[3])
+			else
+				setShown(indicator, false)
 			end
-			i, casterunit,_,_,spellID = 1, select(7,UnitAura(unit, 1, "HARMFUL"))
-			while spellID do
-				if spellID == tonumber(spell) and (not playeronly or playeronly and casterunit and UnitIsUnit(casterunit,"player")) then
-					return ns.UnitAura(unit, i, "HARMFUL")
-				end
-				i = i + 1
-				casterunit,_,_,spellID = select(7, UnitAura(unit, i, "HARMFUL"))
-			end
-		elseif type(spell) == "string" then
-			local i, spellName = 1, UnitAura(unit, 1)
-			local casterunit = select(7,UnitAura(unit, 1))
-			local lowerSpell = strlower(spell)
-			while spellName do
-				if strmatch(strlower(spellName),lowerSpell) and (not playeronly or playeronly and casterunit and UnitIsUnit(casterunit,"player")) then
-					return ns.UnitAura(unit, i)
-				end
-				i = i + 1
-				spellName = UnitAura(unit, i)
-				casterunit = select(7,UnitAura(unit, i))
-			end
-			i, spellName = 1, UnitAura(unit, 1, "HARMFUL")
-			casterunit = select(7,UnitAura(unit, 1, "HARMFUL"))
-			while spellName do
-				if strmatch(strlower(spellName),lowerSpell) and (not playeronly or playeronly and casterunit and UnitIsUnit(casterunit,"player")) then
-					return ns.UnitAura(unit, i, "HARMFUL")
-				end
-				i = i + 1
-				spellName = UnitAura(unit, i, "HARMFUL")
-				casterunit = select(7,UnitAura(unit, i, "HARMFUL"))
+		elseif indicator.type == "legacythreat" then
+			if legacyThreat then
+				setShown(indicator, true)
+				setCooldown(indicator, false)
+				setTexture(indicator, WHITE_TEX)
+				local color = oUF.colors.reaction[1]
+				setVertexColor(indicator, color[1], color[2], color[3])
+			else
+				setShown(indicator, false)
 			end
 		end
+	end
+
+	return hasAggro, legacyThreat
+end
+
+local function updateAuraIndicators(element, snap)
+	local hasAura, isMissing, hasOwn
+
+	for _, indicator in ipairs(element._aura) do
+		if indicator.type == "aura" and indicator.nameID then
+			if paintRecord(indicator, checkAuraSnap(snap, ensureCompiled(indicator), false), true, true) then
+				hasAura = true
+			end
+		elseif indicator.type == "ownaura" and indicator.nameID then
+			if paintRecord(indicator, checkAuraSnap(snap, ensureCompiled(indicator), true), true) then
+				hasOwn = true
+			end
+		elseif indicator.type == "dispel" then
+			paintRecord(indicator, checkDispelSnap(snap, indicator.dispel_index))
+		elseif indicator.type == "missing" and indicator.nameID then
+			isMissing = checkMissingSnap(snap, ensureCompiled(indicator))
+			if isMissing then
+				setShown(indicator, true)
+				setCooldown(indicator, false)
+				if indicator.showTexture then
+					setTexture(indicator, C_Spell.GetSpellTexture(isMissing))
+					setVertexColor(indicator, 1, 1, 1)
+				else
+					setDispelColor(indicator, "None")
+				end
+			else
+				setShown(indicator, false)
+			end
+		else
+			setShown(indicator, false)
+		end
+	end
+
+	return hasAura, isMissing, hasOwn
+end
+
+local function runUpdate(self, unit, doThreat, doAura)
+	unit = unit or self.unit
+	if not unit then return end
+	local element = self.RaidStatusIndicators
+	if element.PreUpdate then
+		element:PreUpdate(unit)
+	end
+	if element._bucketsDirty then
+		rebuildBuckets(element)
+	end
+
+	local hasAggro, hasAura, isMissing, hasOwn
+	if doThreat then
+		hasAggro = updateThreatIndicators(self, element, unit)
+	else
+		hasAggro = UnitThreatSituation(UnitExists(unit) and unit or "player")
+	end
+	if doAura then
+		hasAura, isMissing, hasOwn = updateAuraIndicators(element, AuraCache:Touch(unit))
+	end
+	if element.PostUpdate then
+		return element:PostUpdate(unit, hasAggro, nil, hasAura, isMissing, hasOwn)
 	end
 end
 
 local function Update(self, event, unit)
-	if(self.unit ~= unit) then return end
-
-	local element = self.RaidStatusIndicators
-
-	--[[ Callback: RaidStatusIndicators:PreUpdate(unit)
-	Called before the element has been updated.
-
-	* self - the RaidStatusIndicators element
-	* unit - the unit for which the update has been triggered (string)
-	--]]
-	if(element.PreUpdate) then
-		element:PreUpdate(unit)
+	if event == "UNIT_PET" and unit and unit ~= "player" then return end
+	if event == "SPELLS_CHANGED" or event == "UNIT_PET" then
+		return runUpdate(self, self.unit, false, true)
 	end
-
-	local hasAggro = UnitThreatSituation(UnitExists(unit) and unit or "player")
-	local legacyThreat = Vex and Vex:GetUnitAggroByUnitId(unit)
-	local hasAura, isMissing, hasOwn
-
-	for _, indicator in pairs(element) do
-		if type(indicator) == "table" then
-			if indicator.type then
-				if indicator.type == "aggro" then
-					if hasAggro and hasAggro > 0 then
-						indicator:Show()
-						indicator.cd:Hide()
-						
-						indicator.texture:SetTexture([[Interface\Buttons\WHITE8X8]])
-						
-						local color = hasAggro == 1 and oUF.colors.reaction[4] or oUF.colors.reaction[1]
-						indicator.texture:SetVertexColor(unpack(color))
-					else
-						indicator:Hide()
-					end
-				elseif indicator.type == "legacythreat" then
-					if legacyThreat then
-						indicator:Show()
-						indicator.cd:Hide()
-						
-						indicator.texture:SetTexture([[Interface\Buttons\WHITE8X8]])
-						
-						local color = oUF.colors.reaction[1]
-						indicator.texture:SetVertexColor(unpack(color))
-					else
-						indicator:Hide()
-					end
-				elseif indicator.type == "aura" and indicator.nameID then
-					local hasicon, count, Type, hasduration, hasexpirationTime = select(2, checkAura(unit, indicator.nameID))
-					if hasicon then
-						indicator:Show()
-						if indicator.showTexture then
-							indicator.texture:SetTexture(hasicon)
-							indicator.texture:SetVertexColor(1,1,1)
-						else
-							local color = oUF.colors.dispel[Type]
-							indicator.texture:SetTexture([[Interface\Buttons\WHITE8X8]])
-							if color then
-								indicator.texture:SetVertexColor(unpack(color))
-							else
-								indicator.texture:SetVertexColor(0,0,0)
-							end
-						end
-						if indicator.timer then
-							indicator.cd:Show()
-							indicator.cd:SetCooldown(hasexpirationTime - hasduration, hasduration)
-						else
-							indicator.cd:Hide()
-						end
-						indicator.cd:SetHideCountdownNumbers(true)
-						if indicator.count then
-							indicator.count:Show()
-							indicator.count:SetText(count > 1 and count or "")
-						else
-							indicator.count:Hide()
-						end
-					else
-						indicator:Hide()
-					end
-				elseif indicator.type == "dispel" then
-					--Get correct index of dispel if set
-					local dispelIcon, _, dispelType, duration, expirationTime = select(2, checkDispel(unit, indicator.dispel_index))
-					
-					if dispelType then
-						indicator:Show()
-						if indicator.showTexture then
-							indicator.texture:SetTexture(dispelIcon)
-							indicator.texture:SetVertexColor(1,1,1)
-						else
-							local color = oUF.colors.dispel[dispelType]
-							indicator.texture:SetTexture([[Interface\Buttons\WHITE8X8]])
-							indicator.texture:SetVertexColor(unpack(color))
-						end
-						if indicator.timer then
-							indicator.cd:Show()
-							indicator.cd:SetCooldown(expirationTime - duration, duration)
-						else
-							indicator.cd:Hide()
-						end
-					else
-						indicator:Hide()
-					end
-				elseif indicator.type == "missing" and indicator.nameID then
-					isMissing = checkMissingBuff(unit, indicator.nameID)
-					if isMissing then
-						indicator:Show()
-						indicator.cd:Hide()
-						if indicator.showTexture then
-							indicator.texture:SetTexture(C_Spell.GetSpellTexture(isMissing))
-							indicator.texture:SetVertexColor(1,1,1)
-						else
-							indicator.texture:SetTexture([[Interface\Buttons\WHITE8X8]])
-							local color = oUF.colors.dispel["None"]
-							if not color then
-								indicator.texture:SetVertexColor(0,0,0)
-							else
-								indicator.texture:SetVertexColor(unpack(color))
-							end
-						end
-					else
-						indicator:Hide()
-					end
-				elseif indicator.type == "ownaura" and indicator.nameID then
-					local ownicon, count, debuffType, ownduration, ownexpirationTime = select(2, checkAura(unit, indicator.nameID, true))
-					if ownicon then
-						indicator:Show()
-						if indicator.showTexture then
-							indicator.texture:SetTexture(ownicon)
-							indicator.texture:SetVertexColor(1,1,1)
-						else
-							indicator.texture:SetTexture([[Interface\Buttons\WHITE8X8]])
-							local color = oUF.colors.dispel[debuffType]
-							if not color then
-								indicator.texture:SetVertexColor(0,0,0)
-							else
-								indicator.texture:SetVertexColor(unpack(color))
-							end
-						end
-						if indicator.timer then
-							indicator.cd:Show()
-							indicator.cd:SetCooldown(ownexpirationTime - ownduration, ownduration)
-						else
-							indicator.cd:Hide()
-						end
-						if indicator.count then
-							indicator.count:Show()
-							indicator.count:SetText(count > 1 and count or "")
-						else
-							indicator.count:Hide()
-						end
-					else
-						indicator:Hide()
-					end
-				else
-					indicator:Hide()
-				end
-			end
-		end
+	if unit and self.unit ~= unit then return end
+	unit = unit or self.unit
+	if event == "UNIT_AURA" then
+		return runUpdate(self, unit, false, true)
+	elseif event == "ForceUpdate" or event == "RefreshUnit" or event == "OnShow" then
+		return runUpdate(self, unit, true, true)
 	end
-
-	--[[ Callback: RaidStatusIndicators:PostUpdate(unit, hasAggro, dispelType)
-	Called after the element has been updated.
-
-	* self          - the RaidStatusIndicators element
-	* unit          - the unit for which the update has been triggered (string)
-	* hasAggro      - the aggro status of the unit as according to "UnitDetailedThreatSituation" (number)
-	* dispelType    - current affliction as returned by "UnitAura" (string)
-	--]]
-	if(element.PostUpdate) then
-		return element:PostUpdate(unit, hasAggro, dispelType, hasAura, isMissing, hasOwn)
-	end
-end
-
-local function checkCurableSpells(self, event, arg1)
-	if event == "UNIT_PET" and (arg1 ~= "player" or playerClass ~= "WARLOCK") then return end
-	table.wipe(canCure)
-	
-	if playerClass == "WARLOCK" then
-		if C_Spell.IsSpellUsable(19505) then
-			canCure["Magic"] = true
-		end
-	elseif cures then
-		for spellID, types in pairs(cures) do
-			if( C_SpellBook.IsSpellKnown(spellID) ) then
-				for _, type in pairs(types) do
-					canCure[type] = true
-				end
-			end
-		end
-	else
-		return
-	end
-	Update(self, event, self.unit)
+	return runUpdate(self, unit, true, false)
 end
 
 local function Path(self, ...)
-	--[[ Override: RaidStatusIndicators.Override(self, event, unit, ...)
-	Used to completely override the internal update function.
-
-	* self  - the parent object
-	* event - the event triggering the update (string)
-	* unit  - the unit accompanying the event (string)
-	* ...   - the arguments accompanying the event
-	--]]
-	return (self.RaidStatusIndicators.Override or Update) (self, ...)
+	return (self.RaidStatusIndicators.Override or Update)(self, ...)
 end
 
 local function ForceUpdate(element)
@@ -382,12 +385,15 @@ end
 
 local function Enable(self)
 	local element = self.RaidStatusIndicators
-	if(element) then
+	if element then
 		element.__owner = self
 		element.ForceUpdate = ForceUpdate
+		element._bucketsDirty = true
 
-		for name,indicator in pairs(element) do
+		for name, indicator in pairs(element) do
 			if type(indicator) == "table" then
+				indicator._shown = false
+				indicator:Hide()
 				if not indicator.cd then
 					indicator.cd = CreateFrame("Cooldown", self:GetName()..name.."RaidStatusCD", indicator, "CooldownFrameTemplate")
 					indicator.cd:SetDrawEdge(false)
@@ -398,21 +404,21 @@ local function Enable(self)
 				end
 
 				if not indicator.count then
-					local countFrame = CreateFrame('Frame', nil, indicator)
+					local countFrame = CreateFrame("Frame", nil, indicator)
 					countFrame:SetAllPoints(indicator)
 					countFrame:SetFrameLevel(indicator.cd:GetFrameLevel() + 1)
 
-					indicator.count = countFrame:CreateFontString(nil, 'OVERLAY', 'NumberFontNormal')
+					indicator.count = countFrame:CreateFontString(nil, "OVERLAY", "NumberFontNormal")
 					local fontName = indicator.count:GetFont()
 					indicator.count:SetFont(fontName, 10, "OUTLINE")
-					indicator.count:SetPoint('BOTTOMRIGHT', countFrame, 'BOTTOMRIGHT', -1, 0)
+					indicator.count:SetPoint("BOTTOMRIGHT", countFrame, "BOTTOMRIGHT", -1, 0)
 				end
 			end
 		end
 
-		local function LegacyThreatUpdate(event, guid)
+		local function LegacyThreatUpdate(_, guid)
 			if guid == UnitGUID(self.unit) then
-				Path(self, event, self.unit)
+				runUpdate(self, self.unit, true, false)
 			end
 		end
 
@@ -423,11 +429,10 @@ local function Enable(self)
 
 		self:RegisterEvent("UNIT_AURA", Path)
 		self:RegisterEvent("UNIT_THREAT_SITUATION_UPDATE", Path)
-		self:RegisterEvent("SPELLS_CHANGED", checkCurableSpells, true)
-		self:RegisterEvent("PLAYER_LOGIN", checkCurableSpells, true)
-		self:RegisterEvent("UNIT_PET", checkCurableSpells, true)
+		self:RegisterEvent("SPELLS_CHANGED", Path, true)
+		self:RegisterEvent("UNIT_PET", Path)
 
-		checkCurableSpells(self)
+		Update(self, "ForceUpdate", self.unit)
 
 		return true
 	end
@@ -435,8 +440,7 @@ end
 
 local function Disable(self)
 	local element = self.RaidStatusIndicators
-	if(element) then
-
+	if element then
 		if Vex then
 			Vex.UnregisterCallback(element, "Vexation_gained")
 			Vex.UnregisterCallback(element, "Vexation_lost")
@@ -444,11 +448,9 @@ local function Disable(self)
 
 		self:UnregisterEvent("UNIT_AURA", Path)
 		self:UnregisterEvent("UNIT_THREAT_SITUATION_UPDATE", Path)
-		self:UnregisterEvent("SPELLS_CHANGED", checkCurableSpells)
-		self:UnregisterEvent("PLAYER_LOGIN", checkCurableSpells)
-		self:UnregisterEvent("UNIT_PET", checkCurableSpells)
-		
+		self:UnregisterEvent("SPELLS_CHANGED", Path)
+		self:UnregisterEvent("UNIT_PET", Path)
 	end
 end
 
-oUF:AddElement('RaidStatusIndicators', Path, Enable, Disable)
+oUF:AddElement("RaidStatusIndicators", Path, Enable, Disable)

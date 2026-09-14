@@ -38,6 +38,7 @@ the unit.
 
 local _, ns = ...
 local oUF = ns.oUF
+local AuraCache = ns.AuraCache
 
 local LAT = LibStub("LibAuraTypes")
 local SL = LibStub("LibSpellLocks")
@@ -77,26 +78,26 @@ local function Update(self, event, unit)
 		local PRIO_SILENCE = LAT.GetAuraTypePriority(CUTOFF_AURA_TYPE, UnitCanAttack("player",unit))
 		icon, duration, expirationTime = select(3,SL:GetSpellLockInfo(unit))
 		if not icon then
-			for i=1, 32 do
-				local name, tmpicon, _, _, tmpduration, tmpexpirationTime, _, _, _, spellId = ns.UnitAura(unit, i, "HELPFUL")
-				if not name then break end
-				local prio = LAT.GetAuraInfo(spellId, UnitCanAttack("player",unit))
+			local snap = AuraCache:Touch(unit)
+			local canAttack = UnitCanAttack("player", unit)
+			for i = 1, snap.helpfulCount do
+				local record = snap.helpful[i]
+				local prio = LAT.GetAuraInfo(record.spellID, canAttack)
 				if prio and prio > maxPrio and prio >= PRIO_SILENCE then
 					maxPrio = prio
-					icon = tmpicon
-					duration = tmpduration
-					expirationTime = tmpexpirationTime
+					icon = record.icon
+					duration = record.duration
+					expirationTime = record.expirationTime
 				end
 			end
-			for i=1, 16 do
-				local name, tmpicon, _, _, tmpduration, tmpexpirationTime, _, _, _, spellId = ns.UnitAura(unit, i, "HARMFUL")
-				if not name then break end
-				local prio = LAT.GetAuraInfo(spellId, UnitCanAttack("player",unit))
+			for i = 1, snap.harmfulCount do
+				local record = snap.harmful[i]
+				local prio = LAT.GetAuraInfo(record.spellID, canAttack)
 				if prio and prio > maxPrio and prio >= PRIO_SILENCE then
 					maxPrio = prio
-					icon = tmpicon
-					duration = tmpduration
-					expirationTime = tmpexpirationTime
+					icon = record.icon
+					duration = record.duration
+					expirationTime = record.expirationTime
 				end
 			end
 		end
@@ -230,6 +231,8 @@ local function Enable(self, unit)
 
 		element.model:Show()
 
+		Path(self, 'ForceUpdate', unit or self.unit)
+
 		return true
 	end
 end
@@ -244,6 +247,8 @@ local function Disable(self)
 		self:UnregisterEvent('PORTRAITS_UPDATED', Path)
 		self:UnregisterEvent('PARTY_MEMBER_ENABLE', Path)
 		self:UnregisterEvent('UNIT_CONNECTION', Path)
+		self:UnregisterEvent('UNIT_AURA', Path)
+		SL.UnregisterCallback(element, 'UPDATE_INTERRUPT')
 	end
 end
 

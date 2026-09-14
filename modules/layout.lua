@@ -697,6 +697,7 @@ function LUF.InitializeUnit(frame, unit, notHeaderChild)
 		indicator:SetBackdropColor(0,0,0)
 		indicator.texture = indicator:CreateTexture(nil, "OVERLAY")
 		indicator.texture:SetAllPoints(indicator)
+		indicator:Hide()
 		RaidStatusIndicators[k] = indicator
 	end
 	frame.RaidStatusIndicators = RaidStatusIndicators

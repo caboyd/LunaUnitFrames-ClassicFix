@@ -330,6 +330,10 @@ function LUF:OnLoad()
 	self.db.RegisterCallback(self, "OnProfileDeleted", "OnProfileDeleted")
 
 	self.db.profile.version = self.version
+
+	if self.AuraCache and self.AuraCache.test then
+		self.AuraCache.test.ResetSettings(self.db.profile)
+	end
 	
 	SML.RegisterCallback(self, "LibSharedMedia_Registered", "MediaRegistered")
 	SML.RegisterCallback(self, "LibSharedMedia_SetGlobal", "MediaForced")
@@ -365,6 +369,13 @@ end
 
 function LUF:ProfilesChanged()
 	if( resetTimer ) then resetTimer:Hide() end
+
+	if self.AuraCache and self.AuraCache.test then
+		if self.AuraCache.test.IsActive() then
+			self.AuraCache.test.Stop()
+		end
+		self.AuraCache.test.ResetSettings(self.db.profile)
+	end
 	
 	self.db:RegisterDefaults(self.defaults)
 	
@@ -1133,6 +1144,8 @@ function LUF.ApplySettings(frame)
 				else
 					indicator.nameID = {strsplit(";", squarecfg[name].value or "")}
 				end
+				indicator._compiled = nil
+				frame.RaidStatusIndicators._bucketsDirty = true
 				indicator:SetSize(squarecfg[name].size, squarecfg[name].size)
 				if name ~= "leftcenter" and name ~= "rightcenter" then
 					indicator:ClearAllPoints()
@@ -1140,7 +1153,12 @@ function LUF.ApplySettings(frame)
 				end
 			else
 				indicator.type = nil
+				indicator._compiled = nil
+				frame.RaidStatusIndicators._bucketsDirty = true
+				indicator._shown = false
+				indicator._tex = nil
 				indicator:Hide()
+				if indicator.cd then indicator.cd:Hide() end
 			end
 		end
 		if squarecfg.leftcenter.enabled then
@@ -1654,6 +1672,7 @@ function LUF:SpawnUnits()
 	end)
 	
 	--WOTLK/TBC backwards compat
+	--Drop all frames that don't exist in the current game
 	if(LUF.isClassic) then
 		self.db.profile.units["focus"] = nil
 		self.db.profile.units["focustarget"] = nil
@@ -1662,9 +1681,7 @@ function LUF:SpawnUnits()
 		self.db.profile.units["arenapet"] = nil
 		self.db.profile.units["arenatarget"] = nil
 	end
-	if(not LUF.isWrath) then
-		self.db.profile.units["boss"] = nil
-	end
+	self.db.profile.units["boss"] = nil
 	
 	LUF.deferFrameSetup = true
 	for unit, config in pairs(self.db.profile.units) do
