@@ -3669,7 +3669,7 @@ function LUF:CreateConfig()
 					},
 				},
 				elite = {
-					name = L["elite"],
+					name = ELITE,
 					type = "group",
 					order = 11,
 					inline = true,
@@ -3677,7 +3677,7 @@ function LUF:CreateConfig()
 					args = {
 						enabled = {
 							name = ENABLE,
-							desc = string.format(L["Enable or disable the %s."],L["elite"]),
+							desc = string.format(L["Enable or disable the %s."],ELITE),
 							type = "toggle",
 							order = 1,
 							set = function(info, value)
@@ -3705,7 +3705,7 @@ function LUF:CreateConfig()
 							type = "select",
 							order = 3,
 							hidden = function(info) return (info[1] ~= "player" and info[1] ~= "pet") end,
-							values = {["elite"] = L["elite"], ["rare"] = L["rare"]},
+							values = {["elite"] = ELITE, ["rare"] = ITEM_QUALITY3_DESC},
 							set = function(info, value)
 								set(info, value)
 								if info[1] == "player" then
@@ -11069,7 +11069,7 @@ function LUF:CreateConfig()
 						end,
 					},
 					deletefilter = {
-						name = L["Delete"],
+						name = DELETE,
 						desc = L["Delete this filter list"],
 						type = "execute",
 						order = 4.1,
@@ -11242,7 +11242,7 @@ function LUF:CreateConfig()
 						end,
 					},
 					addselected = {
-						name = L["Add"],
+						name = ADD,
 						desc = L["Add this aura to the filter list"],
 						type = "execute",
 						order = 13,

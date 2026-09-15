@@ -312,7 +312,6 @@ local _ENV = {
 	GetTime = GetTime,
 	math = math,
 	format = format,
-	RARE = strmatch(GARRISON_MISSION_RARE,"%a*"),
 	GHOST = C_Spell.GetSpellName(8326),
 	LHC = LHC,
 	LT = LT,
@@ -618,7 +617,7 @@ local tagStrings = {
 		if UnitIsGhost(unit) then
 			return GHOST
 		elseif not UnitIsConnected(unit) then
-			return FRIENDS_LIST_OFFLINE
+			return PLAYER_OFFLINE
 		elseif hp < 1 then
 			if feigncheck(unit) then
 				return feignDeath
@@ -641,7 +640,7 @@ local tagStrings = {
 		if UnitIsGhost(unit) then
 			return GHOST
 		elseif not UnitIsConnected(unit) then
-			return FRIENDS_LIST_OFFLINE
+			return PLAYER_OFFLINE
 		elseif hp < 1 then
 			if feigncheck(unit) then
 				return feignDeath
@@ -671,7 +670,7 @@ local tagStrings = {
 		if UnitIsGhost(unit) then
 			return GHOST
 		elseif not UnitIsConnected(unit) then
-			return FRIENDS_LIST_OFFLINE
+			return PLAYER_OFFLINE
 		elseif not UnitHasHealthData(unit) then
 			if maxhp < 1 then
 				return "0%"
@@ -705,7 +704,7 @@ local tagStrings = {
 		if UnitIsGhost(unit) then
 			return GHOST
 		elseif not UnitIsConnected(unit) then
-			return FRIENDS_LIST_OFFLINE
+			return PLAYER_OFFLINE
 		elseif not UnitHasHealthData(unit) then
 			if maxhp < 1 then
 				return "0%"
@@ -770,7 +769,7 @@ local tagStrings = {
 		if UnitIsGhost(unit) then
 			return GHOST
 		elseif not UnitIsConnected(unit) then
-			return FRIENDS_LIST_OFFLINE
+			return PLAYER_OFFLINE
 		end
 		return hp
 	end]],
@@ -832,7 +831,7 @@ local tagStrings = {
 		if UnitIsGhost(unit) then
 			return GHOST
 		elseif not UnitIsConnected(unit) then
-			return FRIENDS_LIST_OFFLINE
+			return PLAYER_OFFLINE 
 		elseif hp < 1 then
 			if feigncheck(unit) then
 				return feignDeath
@@ -1008,7 +1007,7 @@ local tagStrings = {
 		elseif UnitIsGhost(unit) then
 			return GHOST
 		elseif not UnitIsConnected(unit) then
-			return FRIENDS_LIST_OFFLINE
+			return PLAYER_OFFLINE
 		end
 	end]],
 
@@ -1019,7 +1018,7 @@ local tagStrings = {
 	["rare"] = [[function(unit)
 		local classif = UnitClassification(unit)
 		if classif == "rare" or classif == "rareelite" then
-			return RARE
+			return ITEM_QUALITY3_DESC
 		end
 	end]],
 
@@ -1033,11 +1032,11 @@ local tagStrings = {
 	["classification"] = [[function(unit)
 		local classif = UnitClassification(unit)
 		if classif == "rare" then
-			return RARE
+			return ITEM_QUALITY3_DESC
 		elseif classif == "elite" then
 			return ELITE
 		elseif classif == "rareelite" then
-			return RARE.." "..ELITE
+			return ITEM_QUALITY3_DESC.." "..ELITE
 		elseif classif == "worldboss" then
 			return BOSS
 		end
@@ -1141,7 +1140,7 @@ local tagStrings = {
 		if UnitIsGhost(unit) then
 			return GHOST
 		elseif not UnitIsConnected(unit) then
-			return FRIENDS_LIST_OFFLINE
+			return PLAYER_OFFLINE
 		end
 		local guid = UnitGUID(unit)
 		local hp,maxhp
@@ -1194,7 +1193,7 @@ local tagStrings = {
 		if UnitIsGhost(unit) then
 			return GHOST
 		elseif not UnitIsConnected(unit) then
-			return FRIENDS_LIST_OFFLINE
+			return PLAYER_OFFLINE
 		end
 		local guid = UnitGUID(unit)
 		local hp,maxhp
@@ -1235,7 +1234,7 @@ local tagStrings = {
 		if UnitIsGhost(unit) then
 			return GHOST
 		elseif not UnitIsConnected(unit) then
-			 return FRIENDS_LIST_OFFLINE
+			 return PLAYER_OFFLINE
 		end
 		local guid = UnitGUID(unit)
 		local hp,maxhp
