@@ -437,6 +437,7 @@ local L = {
 ["IndexOfDispel"] = "Индекс снятия",
 ["IndexOfDispelDesc"] = "Чтобы показать первое найденное снятие, оставьте пустым или используйте 1, второе — 2, 3 и т.д.",
 ["RaidManager"] = "Raid Manager",
+["Testing"] = "Testing",
 ["Load time: %.1f ms (frame 1: %.1f ms, frame 2: %.1f ms)"] = "Load time: %.1f ms (frame 1: %.1f ms, frame 2: %.1f ms)",
 }
 
