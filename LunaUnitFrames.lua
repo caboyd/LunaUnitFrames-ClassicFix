@@ -2,14 +2,14 @@
 
 LUF = select(2, ...)
 LUF.version = C_AddOns.GetAddOnMetadata("LunaUnitFrames", "Version") .. "-" .. (
-    LUF.oUF.isTBC and "bcc" or LUF.oUF.isClassic and "classic" or "error"
+    LUF.isTBC and "bcc" or LUF.isClassic and "classic" or "error"
 )
 
 local L = LUF.L
 local ACR = LibStub("AceConfigRegistry-3.0", true)
 local SML = LibStub:GetLibrary("LibSharedMedia-3.0")
 local oUF = LUF.oUF
-local ArenaAndFocusExists = not oUF.isClassic
+local ArenaAndFocusExists = not LUF.isClassic
 
 -- Disable oUFs Anti Blizzard function since we make our own
 oUF.DisableBlizzard = function() end
@@ -330,6 +330,10 @@ function LUF:OnLoad()
 	self.db.RegisterCallback(self, "OnProfileDeleted", "OnProfileDeleted")
 
 	self.db.profile.version = self.version
+
+	if self.AuraCache and self.AuraCache.test then
+		self.AuraCache.test.ResetSettings(self.db.profile)
+	end
 	
 	SML.RegisterCallback(self, "LibSharedMedia_Registered", "MediaRegistered")
 	SML.RegisterCallback(self, "LibSharedMedia_SetGlobal", "MediaForced")
@@ -365,6 +369,13 @@ end
 
 function LUF:ProfilesChanged()
 	if( resetTimer ) then resetTimer:Hide() end
+
+	if self.AuraCache and self.AuraCache.test then
+		if self.AuraCache.test.IsActive() then
+			self.AuraCache.test.Stop()
+		end
+		self.AuraCache.test.ResetSettings(self.db.profile)
+	end
 	
 	self.db:RegisterDefaults(self.defaults)
 	
@@ -1133,6 +1144,8 @@ function LUF.ApplySettings(frame)
 				else
 					indicator.nameID = {strsplit(";", squarecfg[name].value or "")}
 				end
+				indicator._compiled = nil
+				frame.RaidStatusIndicators._bucketsDirty = true
 				indicator:SetSize(squarecfg[name].size, squarecfg[name].size)
 				if name ~= "leftcenter" and name ~= "rightcenter" then
 					indicator:ClearAllPoints()
@@ -1140,7 +1153,12 @@ function LUF.ApplySettings(frame)
 				end
 			else
 				indicator.type = nil
+				indicator._compiled = nil
+				frame.RaidStatusIndicators._bucketsDirty = true
+				indicator._shown = false
+				indicator._tex = nil
 				indicator:Hide()
+				if indicator.cd then indicator.cd:Hide() end
 			end
 		end
 		if squarecfg.leftcenter.enabled then
@@ -1654,7 +1672,8 @@ function LUF:SpawnUnits()
 	end)
 	
 	--WOTLK/TBC backwards compat
-	if(oUF.isClassic) then
+	--Drop all frames that don't exist in the current game
+	if(LUF.isClassic) then
 		self.db.profile.units["focus"] = nil
 		self.db.profile.units["focustarget"] = nil
 		self.db.profile.units["focustargettarget"] = nil
@@ -1662,15 +1681,13 @@ function LUF:SpawnUnits()
 		self.db.profile.units["arenapet"] = nil
 		self.db.profile.units["arenatarget"] = nil
 	end
-	if(not oUF.isWrath) then
-		self.db.profile.units["boss"] = nil
-	end
+	self.db.profile.units["boss"] = nil
 	
 	LUF.deferFrameSetup = true
 	for unit, config in pairs(self.db.profile.units) do
 		if self.HeaderFrames[unit] then
 			if unit == "raid" then
-				local raidCount = oUF.isClassic and 8 or 9
+				local raidCount = LUF.isClassic and 8 or 9
 				for id=1,raidCount do
 					local data = config.positions[id]
 					self.frameIndex["raid"..id] = oUF:SpawnHeader("LUFHeaderraid"..id, nil, nil, "oUF-initialConfigFunction", format(initialConfigFunction, "raid"))
@@ -1726,7 +1743,7 @@ function LUF:SpawnUnits()
 	self.stateMonitor:SetAttribute("showWhen", (not config.raid.showSolo and not config.raid.showPlayer and not config.raid.showParty) and "RAID" or nil)
 	RegisterStateDriver(self.stateMonitor, "raidstatus", "[target=raid6, exists] full; [target=raid1, exists] semi; none")
 	-- add one for pet raid frames
-	local raidCount = (oUF.isClassic and 8 or 9) + 1
+	local raidCount = (LUF.isClassic and 8 or 9) + 1
 	for i=1, raidCount do
 		local frame
 		if i == raidCount then
@@ -1900,7 +1917,7 @@ end
 
 local classOrder
 
-if(oUF.isClassic) then
+if(LUF.isClassic) then
 	classOrder = {
 		[1] = "DRUID",
 		[2] = "HUNTER",
@@ -1931,7 +1948,7 @@ function LUF:SetupHeader(headerUnit)
 	
 	if headerUnit == "raid" then
 		if not self.frameIndex["raid1"] then return end
-		local raidCount = oUF.isClassic and 8 or 9
+		local raidCount = LUF.isClassic and 8 or 9
 		for id=1,raidCount do
 			header = self.frameIndex["raid"..id]
 			if config.groupBy == "GROUP" then
@@ -1939,7 +1956,7 @@ function LUF:SetupHeader(headerUnit)
 				header.grpNumber:SetText(GROUP.." "..id)
 			else
 				header:SetAttribute("groupFilter", classOrder[id])
-				if oUF.isClassic and id == 4 then
+				if LUF.isClassic and id == 4 then
 					if UnitFactionGroup("player") == "Horde" then
 						header.grpNumber:SetText(LOCALIZED_CLASS_NAMES_MALE["SHAMAN"])
 					else
@@ -1972,7 +1989,7 @@ function LUF:ReloadHeaderUnits(headerUnit)
 	
 	if headerUnit == "raid" then
 		if not self.frameIndex["raid1"] then return end
-		local raidCount = oUF.isClassic and 8 or 9
+		local raidCount = LUF.isClassic and 8 or 9
 		for id=1,raidCount do
 			header = self.frameIndex["raid"..id]
 			SetHeaderSettings(header)

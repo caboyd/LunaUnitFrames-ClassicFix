@@ -3,7 +3,7 @@ LUF = select(2, ...)
 local oUF = LUF.oUF
 local SML = LibStub:GetLibrary("LibSharedMedia-3.0")
 
-local ArenaAndFocusExists = not LUF.oUF.isClassic
+local ArenaAndFocusExists = not LUF.isClassic
 
 local backdrop = {
 	bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
@@ -647,6 +647,7 @@ function LUF.InitializeUnit(frame, unit, notHeaderChild)
 	if unit ~= "player" then
 		frame.Range = {
 			range = LUF.db.profile.range.dist,
+			Override = LUF.overrides["Range"].Update,
 		}
 	end
 
@@ -696,6 +697,7 @@ function LUF.InitializeUnit(frame, unit, notHeaderChild)
 		indicator:SetBackdropColor(0,0,0)
 		indicator.texture = indicator:CreateTexture(nil, "OVERLAY")
 		indicator.texture:SetAllPoints(indicator)
+		indicator:Hide()
 		RaidStatusIndicators[k] = indicator
 	end
 	frame.RaidStatusIndicators = RaidStatusIndicators

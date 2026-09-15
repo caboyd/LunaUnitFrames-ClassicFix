@@ -3,9 +3,9 @@ local oUF = ns.oUF
 
 --https://github.com/wardz/ClassicCastbars/blob/master/ClassicCastbars/core/ClassicSpellData.lua
 
-local CLIENT_IS_TBC = oUF.isTBC
-local CLIENT_IS_CLASSIC_ERA = oUF.isClassic
-local CLIENT_IS_SOD = oUF.isClassicSoD
+local CLIENT_IS_TBC = ns.isTBC
+local CLIENT_IS_CLASSIC_ERA = ns.isClassic
+local CLIENT_IS_SOD = ns.isClassicSoD
 
 local GetSpellInfo = C_Spell and C_Spell.GetSpellName or _G.GetSpellInfo
 

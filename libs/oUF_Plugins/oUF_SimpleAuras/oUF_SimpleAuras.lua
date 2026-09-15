@@ -68,6 +68,7 @@ button.isPlayer - indicates if the aura caster is the player or their vehicle (b
 
 local _, ns = ...
 local oUF = ns.oUF
+local AuraCache = ns.AuraCache
 
 local LCD = LibStub("LibClassicDurations", true)
 if LCD then
@@ -79,7 +80,7 @@ local mainHandEnd, mainHandDuration, mainHandCharges, offHandEnd, offHandDuratio
 local weaponEnchantData;
 
 -- Things in this table have a duration other than 30 min
-if oUF.isClassic then 
+if ns.isClassic then 
 	weaponEnchantData = {
 		[2684] = 3600, -- +100 Attack Power vs Undead (60 min)
 		[2685] = 3600, -- +60 Spell Power vs Undead (60 min)
@@ -170,11 +171,103 @@ else
 	}
 end
 
+local WHITE_COLOR = { 1, 1, 1 }
+local STEAL_TEX = "Interface\\TargetingFrame\\UI-TargetingFrame-Stealable"
+local DEFAULT_OVERLAY_TEX = [[Interface\Buttons\UI-Debuff-Overlays]]
+
+local function setShown(button, shown)
+	if button._shown ~= shown then
+		button._shown = shown
+		if shown then
+			button:Show()
+		else
+			button:Hide()
+		end
+	end
+end
+
+local function setCooldown(button, element, shown, start, duration)
+	if button._cdShown ~= shown then
+		button._cdShown = shown
+		if shown then
+			button.cd.noCooldownCount = element.disableOCC
+			button.cd:SetHideCountdownNumbers(element.disableBCC)
+			button.cd:Show()
+		else
+			button.cd:Hide()
+		end
+	end
+	if shown and (button._cdStart ~= start or button._cdDur ~= duration) then
+		button._cdStart = start
+		button._cdDur = duration
+		button.cd:SetCooldown(start, duration)
+		if not element.disableBCC and not (_G.OmniCC and not element.disableOCC) then
+			button._bccSize = nil
+		end
+	end
+end
+
+local function setIconTexture(button, texture)
+	if button._iconTex ~= texture then
+		button._iconTex = texture
+		button.icon:SetTexture(texture)
+	end
+end
+
+local function setOverlay(button, element, isStealable, debuffType)
+	local mode = isStealable and element.showSteal and "steal"
+		or element.showType and debuffType and ("type:" .. debuffType)
+		or element.overlay and "custom"
+		or "default"
+	if button._overlayMode ~= mode then
+		button._overlayMode = mode
+		if mode == "steal" then
+			button.overlay:SetVertexColor(1, 1, 1)
+			button.overlay:SetTexture(STEAL_TEX)
+			button.overlay:SetTexCoord(0.1, 0.95, 0.1, 0.95)
+			button.overlay:SetBlendMode("ADD")
+		else
+			local color = element.showType and oUF.colors.dispel[debuffType] or WHITE_COLOR
+			button.overlay:SetVertexColor(color[1], color[2], color[3])
+			button.overlay:SetBlendMode("BLEND")
+			if element.overlay then
+				button.overlay:SetTexture(element.overlay)
+				button.overlay:SetTexCoord(0, 1, 0, 1)
+			else
+				button.overlay:SetTexture(DEFAULT_OVERLAY_TEX)
+				button.overlay:SetTexCoord(0.306875, 0.5703125, 0, 0.515625)
+			end
+		end
+	end
+end
+
+local function setCount(button, count, fontSize)
+	local text = count > 1 and count or ""
+	if button._countText ~= text then
+		button._countText = text
+		button.count:SetText(text)
+	end
+	if fontSize and button.buffcountfontsize ~= fontSize then
+		button.count:SetFont(button.count:GetFont(), fontSize, "OUTLINE")
+		button.buffcountfontsize = fontSize
+	end
+end
+
+local function setButtonSize(button, size)
+	if button._size ~= size then
+		button._size = size
+		button:SetSize(size, size)
+	end
+end
 
 local function CheckBlizzardCooldownTextOverflow(element, button)
 	--OmniCC always prevents blizzard timers so we dont need to do
 	-- this if it's installed and not disabled
     if element.disableBCC or (_G.OmniCC and not element.disableOCC) then return end
+
+	local button_width = button._size or button:GetWidth()
+	if button._bccSize == button_width then return end
+	button._bccSize = button_width
 
 	if not button.cdFontString then
 		-- Cache the cooldown text font string
@@ -189,7 +282,6 @@ local function CheckBlizzardCooldownTextOverflow(element, button)
 	local fs = button.cdFontString
 
 	local _, oldFontSize, _ = fs:GetFont()
-	local button_width = button:GetWidth()
 	local fontSize = math.max(8, button_width^0.95 * 0.42)
 
 	if(oldFontSize ~= fontSize) then
@@ -280,9 +372,25 @@ local function createAuraIcon(element, index)
 	return button
 end
 
-local function updateIcon(element, unit, index, position, filter, isDebuff)
+local function getIconSize(element, isDebuff, isPlayer)
+	local preventGrowth
+	if isDebuff then
+		preventGrowth = element.debuffAnchor == "INFRAME" or element.debuffAnchor == "INFRAMECENTER"
+		if not preventGrowth and element.largeDebuffSize ~= 0 and isPlayer then
+			return element.debuffSize + element.largeDebuffSize
+		end
+		return element.debuffSize or 16
+	end
+	preventGrowth = element.buffAnchor == "INFRAME" or element.buffAnchor == "INFRAMECENTER"
+	if not preventGrowth and element.largeBuffSize ~= 0 and isPlayer then
+		return element.buffSize + element.largeBuffSize
+	end
+	return element.buffSize or 16
+end
+
+local function updateIcon(element, unit, record, position, filter, isDebuff, index)
 	local auras = isDebuff and element.debuffFrame or element.buffFrame
-	local name, texture, count, debuffType, duration, expiration, caster, isStealable, nameplateShowSelf, spellID, canApply, isBossDebuff, casterIsPlayer, nameplateShowAll, timeMod, effect1, effect2, effect3
+	local name, texture, count, debuffType, duration, expiration, caster, isStealable
 
 	if filter == "TEMP" then
 		if index == 16 then
@@ -290,262 +398,221 @@ local function updateIcon(element, unit, index, position, filter, isDebuff)
 		else
 			name, texture, count, debuffType, duration, expiration, caster = "OffHandEnchant", GetInventoryItemTexture("player", index), offHandCharges, nil, offHandDuration, offHandEnd, "player"
 		end
-	else
-		if LCD and not UnitIsUnit("player", unit) then
-			local durationNew, expirationTimeNew
-			name, texture, count, debuffType, duration, expiration, caster, isStealable, nameplateShowSelf, spellID, canApply, isBossDebuff, casterIsPlayer, nameplateShowAll, timeMod, effect1, effect2, effect3 = LCD:UnitAura(unit, index, filter)
-
-			if spellID then
-				durationNew, expirationTimeNew = LCD:GetAuraDurationByUnit(unit, spellID, caster, name)
-			end
-
-			if durationNew and durationNew > 0 then
-				duration, expiration = durationNew, expirationTimeNew
-			end
-		else
-			name, texture, count, debuffType, duration, expiration, caster, isStealable, nameplateShowSelf, spellID, canApply, isBossDebuff, casterIsPlayer, nameplateShowAll, timeMod, effect1, effect2, effect3 = UnitAura(unit, index, filter)
-		end
+	elseif record then
+		name = record.name
+		texture = record.icon
+		count = record.count
+		debuffType = record.debuffType
+		duration = record.duration
+		expiration = record.expirationTime
+		caster = record.caster
+		isStealable = record.isStealable
+		index = record.index or index
 	end
 
 	if element.forceShow or element.forceCreate then
-		spellID = filter == "HELPFUL" and 28059 or filter == "TEMP" and 13852 or 28084
+		local spellID = filter == "HELPFUL" and 28059 or filter == "TEMP" and 13852 or 28084
 		name = C_Spell.GetSpellName(spellID)
-		texture = C_Spell.GetSpellTexture(spellID);
+		texture = C_Spell.GetSpellTexture(spellID)
 
 		if element.forceShow then
-			count, debuffType, duration, expiration, caster, isStealable, nameplateShowSelf, isBossDebuff = filter == "TEMP" and 1 or index, "Magic", 0, 60, (math.random(0,1) > 0) and "player", nil, nil, nil
+			count, debuffType, duration, expiration, caster, isStealable = filter == "TEMP" and 1 or index, "Magic", 0, 60, (math.random(0, 1) > 0) and "player", nil
 		end
 	end
 
-	if(name) then
-		local button = auras[position]
-		if(not button) then
-			--[[ Override: SimpleAuras:CreateIcon(position)
-			Used to create the aura button at a given position.
+	if not name then return end
 
-			* self     - the widget holding the aura buttons
-			* position - the position at which the aura button is to be created (number)
-
-			## Returns
-
-			* button - the button used to represent the aura (Button)
-			--]]
-			auras.createdIcons = auras.createdIcons + 1
-			
-			button = (element.CreateIcon or createAuraIcon) (auras, position)
-			auras[auras.createdIcons] = button
-			
-			-- Bugreport #910, something strange going on here trying to compensate
-			if not auras[auras.createdIcons] then
-				auras.createdIcons = auras.createdIcons - 1
-			end
-
+	local button = auras[position]
+	if not button then
+		auras.createdIcons = auras.createdIcons + 1
+		button = (element.CreateIcon or createAuraIcon)(auras, position)
+		auras[auras.createdIcons] = button
+		if not auras[auras.createdIcons] then
+			auras.createdIcons = auras.createdIcons - 1
 		end
+	end
 
-		button.caster = caster
-		button.filter = filter
-		button.isDebuff = isDebuff
-		button.isPlayer = caster == "player" or caster == "vehicle"
+	if not button then return end
+
+	local isPlayer = caster == "player" or caster == "vehicle"
+	if button._spellID == (record and record.spellID)
+		and button._countVal == (count or 0)
+		and button._exp == expiration
+		and button._iconTex == texture
+		and button.caster == caster
+		and button._debuffType == debuffType
+		and button._auraIndex == index
+		and button._shown
+	then
+		return
+	end
+
+	button.caster = caster
+	button.filter = filter
+	button.isDebuff = isDebuff
+	button.isPlayer = isPlayer
+	button._spellID = record and record.spellID
+	button._countVal = count or 0
+	button._exp = expiration
+	button._debuffType = debuffType
+	button._auraIndex = index
+	if not button._hasCancel then
+		button._hasCancel = true
 		button:SetScript("OnClick", cancelAura)
+	end
 
-		if(name) then
-			if button.cd then
-				if (expiration and expiration > 0) and (duration and duration > 0) and (element.timer == "all" or element.timer == "self" and button.isPlayer) then
-					button.cd.noCooldownCount = element.disableOCC
-					button.cd:SetCooldown(expiration - duration, duration)
-					button.cd:Show()
-					button.cd:SetHideCountdownNumbers(element.disableBCC)
-				else
-					button.cd:Hide()
-				end
-			end
-
-			if(button.overlay) then
-				local color = element.showType and oUF.colors.dispel[debuffType] or {1,1,1}
-				if isStealable and element.showSteal then
-					button.overlay:SetVertexColor(1, 1, 1)
-					button.overlay:SetTexture("Interface\\TargetingFrame\\UI-TargetingFrame-Stealable")
-					button.overlay:SetTexCoord(0.1,0.95,0.1,0.95)
-					button.overlay:SetBlendMode("ADD")
-				else
-					button.overlay:SetVertexColor(color[1], color[2], color[3])
-					button.overlay:SetBlendMode("BLEND")
-					if element.overlay then
-						button.overlay:SetTexture(element.overlay)
-						button.overlay:SetTexCoord(0,1,0,1)
-					else
-						button.overlay:SetTexture([[Interface\Buttons\UI-Debuff-Overlays]])
-						button.overlay:SetTexCoord(0.306875, 0.5703125, 0, 0.515625)
-					end
-				end
-			end
-
-			if(button.icon) then button.icon:SetTexture(texture) end
-
-			button.count:SetText(count > 1 and count or "")
-			if(button.buffcountfontsize ~= element.buffcountfontsize) then
-				element.buffcountfontsize = element.buffcountfontsize or 10 
-				button.count:SetFont(button.count:GetFont(),  element.buffcountfontsize, "OUTLINE")
-				button.buffcountfontsize = element.buffcountfontsize
-			end
-				
-			local size
-			local preventBuffGrowth, preventDebuffGrowth = (element.buffAnchor == "INFRAME" or element.buffAnchor == "INFRAMECENTER"), (element.debuffAnchor == "INFRAME" or element.debuffAnchor == "INFRAMECENTER")
-			if isDebuff then
-				if not preventDebuffGrowth and element.largeDebuffSize ~= 0 and button.isPlayer then
-					size = element.debuffSize + element.largeDebuffSize
-				else
-					size = element.debuffSize or 16
-				end
-			else
-				if not preventBuffGrowth and element.largeBuffSize ~= 0 and button.isPlayer then
-					size = element.buffSize + element.largeBuffSize
-				else
-					size = element.buffSize or 16
-				end
-			end
-			button:SetSize(size, size)
-
-			button:SetID(index)
-			button:Show()
-
-			--[[ Callback: SimpleAuras:PostUpdateIcon(unit, button, index, position)
-			Called after the aura button has been updated.
-
-			* self        - the widget holding the aura buttons
-			* unit        - the unit on which the aura is cast (string)
-			* button      - the updated aura button (Button)
-			* index       - the index of the aura (number)
-			* position    - the actual position of the aura button (number)
-			* duration    - the aura duration in seconds (number?)
-			* expiration  - the point in time when the aura will expire. Comparable to GetTime() (number)
-			* debuffType  - the debuff type of the aura (string?)['Curse', 'Disease', 'Magic', 'Poison']
-			* isStealable - whether the aura can be stolen or purged (boolean)
-			--]]
-			if(element.PostUpdateIcon) then
-				element:PostUpdateIcon(unit, button, index, position, duration, expiration, debuffType, isStealable)
-			end
-
-		elseif element.forceCreate then
-			local size
-			local preventBuffGrowth, preventDebuffGrowth = (element.buffAnchor == "INFRAME" or element.buffAnchor == "INFRAMECENTER"), (element.debuffAnchor == "INFRAME" or element.debuffAnchor == "INFRAMECENTER")
-			if isDebuff then
-				if not preventDebuffGrowth and element.largeDebuffSize ~= 0 and button.isPlayer then
-					size = element.debuffSize + element.largeDebuffSize
-				else
-					size = element.debuffSize or 16
-				end
-			else
-				if not preventBuffGrowth and element.largeBuffSize ~= 0 and button.isPlayer then
-					size = element.buffSize + element.largeBuffSize
-				else
-					size = element.buffSize or 16
-				end
-			end
-			button:SetSize(size, size)
-			button:Hide()
-
-			if element.PostUpdateIcon then
-				element:PostUpdateIcon(unit, button, index, position, duration, expiration, debuffType, isStealable)
-			end
+	local showTimer = expiration and expiration > 0 and duration and duration > 0
+		and (element.timer == "all" or element.timer == "self" and isPlayer)
+	if button.cd then
+		if showTimer then
+			setCooldown(button, element, true, expiration - duration, duration)
+		else
+			setCooldown(button, element, false)
 		end
-		CheckBlizzardCooldownTextOverflow(element, button)
+	end
 
+	if button.overlay then
+		setOverlay(button, element, isStealable, debuffType)
+	end
+
+	if button.icon then
+		setIconTexture(button, texture)
+	end
+
+	setCount(button, count or 0, element.buffcountfontsize or 10)
+	setButtonSize(button, getIconSize(element, isDebuff, isPlayer))
+
+	if button:GetID() ~= index then
+		button:SetID(index)
+	end
+	setShown(button, true)
+
+	if element.PostUpdateIcon then
+		element:PostUpdateIcon(unit, button, index, position, duration, expiration, debuffType, isStealable)
+	end
+	CheckBlizzardCooldownTextOverflow(element, button)
+end
+
+local function hideTrailingAuras(auraFrame, currentSlot)
+	while auraFrame[currentSlot] do
+		setShown(auraFrame[currentSlot], false)
+		currentSlot = currentSlot + 1
 	end
 end
 
+local function passesPlayerFilter(filterMode, record)
+	return filterMode ~= 2 or record.caster == "player" or record.isPlayer
+end
+
+local function updateAurasFromSnapshot(element, unit, snap, isDebuff, filterMode, maxAuras, filter, currentSlot)
+	local list = isDebuff and snap.harmful or snap.helpful
+	local count = isDebuff and snap.harmfulCount or snap.helpfulCount
+	local limit = math.min(count, maxAuras or count)
+	for i = 1, limit do
+		local record = list[i]
+		if passesPlayerFilter(filterMode, record) then
+			updateIcon(element, unit, record, currentSlot, filter, isDebuff, record.index)
+			currentSlot = currentSlot + 1
+		end
+	end
+	return currentSlot
+end
+
+local function updateAurasFromRaidFilter(element, unit, isDebuff, filterMode, maxAuras, filter, currentSlot)
+	local raidFilter = (isDebuff and "HARMFUL" or "HELPFUL") .. "|RAID"
+	for i = 1, maxAuras do
+		local name, _, _, _, _, _, caster = ns.UnitAura(unit, i, raidFilter)
+		if name or element.forceShow then
+			if filterMode ~= 2 or caster == "player" then
+				updateIcon(element, unit, nil, currentSlot, filter, isDebuff, i)
+				currentSlot = currentSlot + 1
+			end
+		else
+			break
+		end
+	end
+	return currentSlot
+end
+
 local function UpdateAuras(self, event, unit)
-	if(self.unit ~= unit) then return end
+	if self.unit ~= unit then return end
 
 	local element = self.SimpleAuras
-	if(element) then
-		--[[ Callback: SimpleAuras:PreUpdate(unit)
-		Called before the element has been updated.
+	if not element then return end
 
-		* self - the widget holding the aura buttons
-		* unit - the unit for which the update has been triggered (string)
-		--]]
-		if(element.PreUpdate) then element:PreUpdate(unit) end
+	if element.PreUpdate then element:PreUpdate(unit) end
 
-		-- Update ze iconz here
-		local buffs = element.buffFrame
-		local currentSlot = 1
-		local offset = 0
-		local filter = "HELPFUL"..(element.buffFilter == 3 and (UnitCanAssist("player", unit) or not UnitIsVisible(unit)) and "|RAID" or "")
-		local button
-		if element.buffs then
-			for i=1,(element.maxBuffs or 32) do
-				local name, _, _, _, _, _, caster = oUF.LCDUnitAura(self.unit, i, filter)
-				if name or element.forceShow then
-					if element.buffFilter ~= 2 or caster == "player" then
-						updateIcon(element, self.unit, i, currentSlot, filter, false)
-						currentSlot = currentSlot + 1
-					end
-				else
-					break
-				end
-			end
-		end
-		if element.weapons then
-			if (mainHandDuration or element.forceShow) and element.weapons then
-				updateIcon(element, "player", 16, currentSlot, "TEMP", false)
+	local snap = AuraCache:Touch(unit)
+	local maxBuffs = element.maxBuffs or 32
+	local maxDebuffs = element.maxDebuffs or 40
+	local buffFilter = "HELPFUL"
+	local debuffFilter = "HARMFUL"
+	local buffs = element.buffFrame
+	local currentSlot = 1
+
+	if element.buffs then
+		if element.buffFilter == 3 and (UnitCanAssist("player", unit) or not UnitIsVisible(unit)) then
+			currentSlot = updateAurasFromRaidFilter(element, unit, false, element.buffFilter, maxBuffs, buffFilter .. "|RAID", currentSlot)
+		elseif element.forceShow then
+			for i = 1, maxBuffs do
+				updateIcon(element, unit, nil, currentSlot, buffFilter, false, i)
 				currentSlot = currentSlot + 1
 			end
-			if (offHandDuration or element.forceShow) and element.weapons then
-				updateIcon(element, "player", 17, currentSlot, "TEMP", false)
-				currentSlot = currentSlot + 1
-			end
+		else
+			currentSlot = updateAurasFromSnapshot(element, unit, snap, false, element.buffFilter, maxBuffs, buffFilter, currentSlot)
 		end
-		while buffs[currentSlot] do
-			buffs[currentSlot]:Hide()
-			currentSlot = currentSlot + 1
-		end
-		
-		local debuffs = element.debuffFrame
-		currentSlot = 1
-		offset = 0
-		filter = "HARMFUL"..(element.debuffFilter == 3 and "|RAID" or "")
-		if element.debuffs then
-			for i=1,(element.maxDebuffs or 40) do
-				local name, _, _, _, _, _, caster = oUF.LCDUnitAura(self.unit, i, filter)
-				if name or element.forceShow then
-					if element.debuffFilter ~= 2 or caster == "player" then
-						updateIcon(element, self.unit, i, currentSlot, filter, true)
-						currentSlot = currentSlot + 1
-					end
-				else
-					break
-				end
-			end
-		end
-		while debuffs[currentSlot] do
-			debuffs[currentSlot]:Hide()
-			currentSlot = currentSlot + 1
-		end
-
-		--[[ Callback: SimpleAuras:PostUpdate(unit)
-		Called after the element has been updated.
-
-		* self - the widget holding the aura buttons
-		* unit - the unit for which the update has been triggered (string)
-		--]]
-		if(element.PostUpdate) then element:PostUpdate(unit) end
 	end
+
+	if element.weapons then
+		if mainHandDuration or element.forceShow then
+			updateIcon(element, "player", nil, currentSlot, "TEMP", false, 16)
+			currentSlot = currentSlot + 1
+		end
+		if offHandDuration or element.forceShow then
+			updateIcon(element, "player", nil, currentSlot, "TEMP", false, 17)
+			currentSlot = currentSlot + 1
+		end
+	end
+
+	element._visibleBuffs = currentSlot - 1
+	hideTrailingAuras(buffs, currentSlot)
+
+	local debuffs = element.debuffFrame
+	currentSlot = 1
+	if element.debuffs then
+		if element.debuffFilter == 3 then
+			currentSlot = updateAurasFromRaidFilter(element, unit, true, element.debuffFilter, maxDebuffs, debuffFilter .. "|RAID", currentSlot)
+		elseif element.forceShow then
+			for i = 1, maxDebuffs do
+				updateIcon(element, unit, nil, currentSlot, debuffFilter, true, i)
+				currentSlot = currentSlot + 1
+			end
+		else
+			currentSlot = updateAurasFromSnapshot(element, unit, snap, true, element.debuffFilter, maxDebuffs, debuffFilter, currentSlot)
+		end
+	end
+
+	element._visibleDebuffs = currentSlot - 1
+	hideTrailingAuras(debuffs, currentSlot)
+
+	if element.PostUpdate then element:PostUpdate(unit) end
 end
 
 local function Update(self, event, unit)
 	if self.unit ~= unit then return end
-	
+
 	if self.SimpleAuras.forceShow and event == "OnUpdate" then return end
-	
+
 	UpdateAuras(self, event, unit)
-	
+
 	local element = self.SimpleAuras
 	local frameWidth = self:GetWidth() - 2
 	local frameHeight, rowHeight = 1, 0
 	local button, firstButton, lastButton, rowLenght, buttonSize
 	local buffOffset, debuffOffset = 0, 0
-	
+	local visibleBuffs = element._visibleBuffs or 0
+	local visibleDebuffs = element._visibleDebuffs or 0
+
 	if element.wrapBuffSide == "LEFT" then
 		if element.wrapBuff > 1 then
 			buffOffset = -((element.wrapBuff - 1) * frameWidth)
@@ -562,8 +629,30 @@ local function Update(self, event, unit)
 	end
 	
 	local buffs = element.buffFrame
-	
-	buffs:ClearAllPoints()
+	local buffLayoutKey = string.format(
+		"%d:%d:%s:%s:%d:%d:%d:%s:%f:%f:%d:%d",
+		visibleBuffs, frameWidth, element.buffAnchor or "", element.wrapBuffSide or "",
+		element.spacing or 0, element.buffSize or 16, element.largeBuffSize or 0,
+		tostring(element.buffs), element.wrapBuff or 1, buffOffset, element.buffOffset or 0,
+		element.weapons and 1 or 0, element.buffcountfontsize or 10
+	)
+	local debuffLayoutKey = string.format(
+		"%d:%d:%s:%s:%d:%d:%d:%s:%f:%f:%d:%s",
+		visibleDebuffs, frameWidth, element.debuffAnchor or "", element.wrapDebuffSide or "",
+		element.spacing or 0, element.debuffSize or 16, element.largeDebuffSize or 0,
+		tostring(element.debuffs), element.wrapDebuff or 1, debuffOffset, element.debuffOffset or 0,
+		element.buffAnchor == element.debuffAnchor and 1 or 0, element.buffAnchor or ""
+	)
+
+	local layoutBuff = element._buffLayoutKey ~= buffLayoutKey
+	local layoutDebuff = element._debuffLayoutKey ~= debuffLayoutKey
+	if not layoutBuff and not layoutDebuff then
+		return
+	end
+
+	if layoutBuff then
+		element._buffLayoutKey = buffLayoutKey
+		buffs:ClearAllPoints()
 	if element.buffs or element.weapons then
 		if element.buffAnchor == "BOTTOM" then
 			buffs:SetPoint("TOP", element, "BOTTOM", 1 + buffOffset, -1)
@@ -713,14 +802,17 @@ local function Update(self, event, unit)
 			end
 		end
 	end
-	buffs:SetSize(frameWidth, frameHeight)
-	
+		buffs:SetSize(frameWidth, frameHeight)
+	end
+
 	local debuffs = element.debuffFrame
 	local anchorFrame = (element.buffs or element.weapons) and element.buffAnchor == element.debuffAnchor and buffs or element
-	offset = element.buffAnchor ~= element.debuffAnchor and 1 or 0
+	local offset = element.buffAnchor ~= element.debuffAnchor and 1 or 0
 	frameHeight = 1
 	rowHeight = 0
-	
+
+	if layoutDebuff then
+		element._debuffLayoutKey = debuffLayoutKey
 	debuffs:ClearAllPoints()
 	if element.debuffs then
 		if element.debuffAnchor == "BOTTOM" then
@@ -869,7 +961,8 @@ local function Update(self, event, unit)
 			end
 		end
 	end
-	debuffs:SetSize(frameWidth, frameHeight)
+		debuffs:SetSize(frameWidth, frameHeight)
+	end
 end
 
 local function ForceUpdate(element)
@@ -879,7 +972,7 @@ end
 local playerFrames = {}
 local function UpdateWeaponEnchants(self, silent)
 	weaponWatchTimer = nil
-	local defaultDuration = oUF.isClassic and 1800 or 3600
+	local defaultDuration = ns.isClassic and 1800 or 3600
 	
 	local hasMainHandEnchant, mainHandExpiration, mainHandChargeNum, mainHandEnchantID, hasOffHandEnchant, offHandExpiration, offHandChargeNum, offHandEnchantId = GetWeaponEnchantInfo()
 	if hasMainHandEnchant then

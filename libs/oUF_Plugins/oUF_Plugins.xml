@@ -1,4 +1,5 @@
 <Ui xmlns="http://www.blizzard.com/wow/ui/">
+	<Script file="oUF_AuraCache\oUF_AuraCache.lua"/>
 	<Script file="oUF_Totems\oUF_Totems.lua"/>
 	<Script file="oUF_ClassIndicator\oUF_ClassIndicator.lua"/>
 	<Script file="oUF_EliteIndicator\oUF_EliteIndicator.lua"/>

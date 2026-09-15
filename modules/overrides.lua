@@ -1,6 +1,7 @@
 LUF = select(2, ...)
 
 local oUF = LUF.oUF
+local RC = LibStub("LibRangeCheck-3.0")
 
 LUF.overrides = {}
 
@@ -237,5 +238,56 @@ LUF.overrides["Target"].PostUpdate = function(self, event)
 		end
 	else
 		currentTargetGUID = nil
+	end
+end
+
+LUF.overrides["Range"] = {}
+LUF.overrides["Range"].Update = function(self, event)
+	local element = self.Range
+	local unit = self.unit
+
+	if(element.PreUpdate) then
+		element:PreUpdate()
+	end
+
+	-- Always consider the player's own frame in range.
+	if UnitIsUnit(unit, "player") then
+		element.__owner.currRange = 0
+		self:SetAlpha(element.insideAlpha)
+
+		if(element.PostUpdate) then
+			return element:PostUpdate(self, true, true, true)
+		end
+
+		return
+	end
+
+	local distance
+	local inRange, checkedRange = false, false
+	local connected = UnitIsConnected(unit)
+	if connected then
+		local minRange, maxRange = RC:GetRange(unit, true, LUF.db.profile.range.noItems)
+
+		if maxRange then
+			distance = maxRange
+			inRange = distance <= element.range
+			checkedRange = true
+		else
+			-- party/raid units
+			local ir, cr = UnitInRange(unit)
+			if cr then
+				inRange, checkedRange = ir, cr
+				distance = ir and 40 or 1000
+			end
+		end
+
+		element.__owner.currRange = distance
+		self:SetAlpha(inRange and element.insideAlpha or element.outsideAlpha)
+	else
+		self:SetAlpha(element.insideAlpha)
+	end
+
+	if(element.PostUpdate) then
+		return element:PostUpdate(self, inRange, checkedRange, connected)
 	end
 end
