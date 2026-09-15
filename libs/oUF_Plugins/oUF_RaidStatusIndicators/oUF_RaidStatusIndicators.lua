@@ -314,18 +314,22 @@ local function updateAuraIndicators(element, snap)
 		elseif indicator.type == "dispel" then
 			paintRecord(indicator, checkDispelSnap(snap, indicator.dispel_index))
 		elseif indicator.type == "missing" and indicator.nameID then
-			isMissing = checkMissingSnap(snap, ensureCompiled(indicator))
-			if isMissing then
-				setShown(indicator, true)
-				setCooldown(indicator, false)
-				if indicator.showTexture then
-					setTexture(indicator, C_Spell.GetSpellTexture(isMissing))
-					setVertexColor(indicator, 1, 1, 1)
-				else
-					setDispelColor(indicator, "None")
-				end
-			else
+			if snap.status == "empty" then
 				setShown(indicator, false)
+			else
+				isMissing = checkMissingSnap(snap, ensureCompiled(indicator))
+				if isMissing then
+					setShown(indicator, true)
+					setCooldown(indicator, false)
+					if indicator.showTexture then
+						setTexture(indicator, C_Spell.GetSpellTexture(isMissing))
+						setVertexColor(indicator, 1, 1, 1)
+					else
+						setDispelColor(indicator, "None")
+					end
+				else
+					setShown(indicator, false)
+				end
 			end
 		else
 			setShown(indicator, false)
@@ -367,7 +371,10 @@ local function Update(self, event, unit)
 	end
 	if unit and self.unit ~= unit then return end
 	unit = unit or self.unit
-	if event == "UNIT_AURA" then
+	if event == "UNIT_AURA" or event == "UNIT_CONNECTION"
+		or event == "PARTY_MEMBER_ENABLE" or event == "PARTY_MEMBER_DISABLE"
+		or event == "UNIT_IN_RANGE_UPDATE"
+	then
 		return runUpdate(self, unit, false, true)
 	elseif event == "ForceUpdate" or event == "RefreshUnit" or event == "OnShow" then
 		return runUpdate(self, unit, true, true)
@@ -428,6 +435,10 @@ local function Enable(self)
 		end
 
 		self:RegisterEvent("UNIT_AURA", Path)
+		self:RegisterEvent("UNIT_CONNECTION", Path)
+		self:RegisterEvent("PARTY_MEMBER_ENABLE", Path)
+		self:RegisterEvent("PARTY_MEMBER_DISABLE", Path)
+		self:RegisterEvent("UNIT_IN_RANGE_UPDATE", Path)
 		self:RegisterEvent("UNIT_THREAT_SITUATION_UPDATE", Path)
 		self:RegisterEvent("SPELLS_CHANGED", Path, true)
 		self:RegisterEvent("UNIT_PET", Path)
@@ -447,6 +458,10 @@ local function Disable(self)
 		end
 
 		self:UnregisterEvent("UNIT_AURA", Path)
+		self:UnregisterEvent("UNIT_CONNECTION", Path)
+		self:UnregisterEvent("PARTY_MEMBER_ENABLE", Path)
+		self:UnregisterEvent("PARTY_MEMBER_DISABLE", Path)
+		self:UnregisterEvent("UNIT_IN_RANGE_UPDATE", Path)
 		self:UnregisterEvent("UNIT_THREAT_SITUATION_UPDATE", Path)
 		self:UnregisterEvent("SPELLS_CHANGED", Path)
 		self:UnregisterEvent("UNIT_PET", Path)

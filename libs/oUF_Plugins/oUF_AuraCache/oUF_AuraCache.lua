@@ -10,11 +10,9 @@ local tokenGUID = {}
 local guidTokens = {}
 local snapshots = {}
 local dirtyGUIDs = {}
-local rebuiltThisFrame = {}
 local recordPool = {}
 local testOpts = {}
 
-local serial = 0
 AuraCache.generation = 0
 AuraCache.canCure = {}
 
@@ -30,16 +28,14 @@ cures = cures[playerClass]
 
 local function newSnapshot()
 	return {
-		helpful = {},
-		harmful = {},
-		helpfulByID = {},
-		harmfulByID = {},
-		helpfulByIDPlayer = {},
-		harmfulByIDPlayer = {},
+		helpful = {}, harmful = {},
+		helpfulByID = {}, harmfulByID = {},
+		helpfulByIDPlayer = {}, harmfulByIDPlayer = {},
 		dispels = {},
-		helpfulCount = 0,
-		harmfulCount = 0,
-		dispelCount = 0,
+		helpfulCount = 0, harmfulCount = 0, dispelCount = 0,
+		status = "empty", -- "scanned" | "held" | "empty"
+		canAssist = false, isFriend = false, isManaUser = false,
+		isConnected = false, isVisible = false,
 	}
 end
 
@@ -77,22 +73,85 @@ local function releaseSnapshotRecords(snap)
 	end
 end
 
-local function resolveUnit(guid)
-	local tokens = guidTokens[guid]
-	if not tokens then return end
-	for token in pairs(tokens) do
-		if UnitGUID(token) == guid then
-			return token
-		end
-	end
-	for token in pairs(tokens) do
-		return token
+local function resetAuraLists(snap)
+	releaseSnapshotRecords(snap)
+	snap.helpfulCount = 0
+	snap.harmfulCount = 0
+	snap.dispelCount = 0
+	snap.firstDebuffType = nil
+	table.wipe(snap.helpfulByID)
+	table.wipe(snap.harmfulByID)
+	table.wipe(snap.helpfulByIDPlayer)
+	table.wipe(snap.harmfulByIDPlayer)
+end
+
+local function dropSnapshot(guid)
+	dirtyGUIDs[guid] = nil
+	local snap = snapshots[guid]
+	if snap then
+		releaseSnapshotRecords(snap)
+		snapshots[guid] = nil
 	end
 end
 
-local function fillRecord(record, index, filter, name, icon, count, debuffType, duration, expirationTime, caster, isStealable, spellID)
+-- Classic UnitAura cannot tell "out of range" from "no auras". An empty scan
+-- while the unit object is gone would wipe paladin auras / blessings that are
+-- still up, and a later return often has no UNIT_AURA to restore them.
+-- Offline units keep returning raid auras (paladin auras especially), so those
+-- scans are discarded instead.
+local function auraScanMode(unit)
+	if AuraCache.test and AuraCache.test.active then
+		return "scan"
+	end
+	if not UnitExists(unit) or not UnitIsConnected(unit) then
+		return "empty"
+	end
+	if not UnitIsVisible(unit) then
+		return "hold"
+	end
+	return "scan"
+end
+
+local function acquireSnapshot(guid)
+	local snap = snapshots[guid]
+	if not snap then
+		snap = newSnapshot()
+		snapshots[guid] = snap
+	end
+	return snap
+end
+
+local function fillSnapshotMeta(snap, unit)
+	snap.generation = AuraCache.generation
+	if AuraCache.test and AuraCache.test.active and not UnitExists(unit) then
+		snap.canAssist = true
+		snap.isFriend = true
+		snap.isManaUser = true
+		snap.isConnected = true
+		snap.isVisible = true
+	else
+		snap.canAssist = UnitCanAssist("player", unit)
+		snap.isFriend = UnitIsFriend(unit, "player")
+		local unitClass = select(2, UnitClass(unit))
+		snap.isManaUser = unitClass ~= "ROGUE" and unitClass ~= "WARRIOR"
+		snap.isConnected = not not UnitIsConnected(unit)
+		snap.isVisible = not not UnitIsVisible(unit)
+	end
+end
+
+local lowerNames = {}
+local function lowerName(name)
+	local lower = lowerNames[name]
+	if not lower then
+		lower = strlower(name)
+		lowerNames[name] = lower
+	end
+	return lower
+end
+
+local function fillRecord(record, index, name, icon, count, debuffType, duration, expirationTime, caster, isStealable, spellID)
 	record.name = name
-	record.lowerName = name and strlower(name) or nil
+	record.lowerName = lowerName(name)
 	record.icon = icon
 	record.count = count
 	record.debuffType = debuffType
@@ -103,7 +162,6 @@ local function fillRecord(record, index, filter, name, icon, count, debuffType, 
 	record.isPlayer = caster == "player" or caster == "vehicle" or (caster and UnitIsUnit(caster, "player")) or false
 	record.spellID = spellID
 	record.index = index
-	record.filter = filter
 end
 
 local function indexByID(byID, byIDPlayer, record)
@@ -143,13 +201,13 @@ local function scanAuras(snap, unit, src, filter, harmful)
 		local name, icon, count, debuffType, duration, expirationTime, caster, isStealable, _, spellID = src(unit, i, filter)
 		if not name then break end
 		local record = acquireRecord()
-		fillRecord(record, i, filter, name, icon, count, debuffType, duration, expirationTime, caster, isStealable, spellID)
+		fillRecord(record, i, name, icon, count, debuffType, duration, expirationTime, caster, isStealable, spellID)
 		addRecord(snap, record, harmful)
 	end
 end
 
 local function enrichSnapshotLCD(snap, unit)
-	if not LCD or AuraCache.test.active or UnitIsUnit("player", unit) then return end
+	if not LCD or (AuraCache.test and AuraCache.test.active) or UnitIsUnit("player", unit) then return end
 	for i = 1, snap.helpfulCount do
 		local record = snap.helpful[i]
 		if record.spellID then
@@ -163,55 +221,48 @@ local function enrichSnapshotLCD(snap, unit)
 end
 
 local function rebuildSnapshot(guid, unit)
-	unit = unit or resolveUnit(guid)
-	if not unit then return end
-	if not AuraCache.test.active and not UnitExists(unit) then return end
-
-	local snap = snapshots[guid]
-	if not snap then
-		snap = newSnapshot()
-		snapshots[guid] = snap
-	else
-		releaseSnapshotRecords(snap)
+	dirtyGUIDs[guid] = nil
+	local mode = auraScanMode(unit)
+	if mode == "hold" then
+		-- Unit object is gone (out of range). Keep whatever we last saw; a
+		-- later Touch rebuilds when UnitIsVisible flips back to true.
+		local snap = snapshots[guid]
+		if snap and snap.status ~= "empty" then
+			snap.status = "held"
+			snap.isVisible = false
+			snap.isConnected = true
+			snap.generation = AuraCache.generation
+			return
+		end
+		-- No usable data yet (first Touch after reload, or was offline): scan
+		-- once and remember it was a held scan so later events do not rescan.
 	end
 
-	snap.guid = guid
-	serial = serial + 1
-	snap.serial = serial
-	snap.helpfulCount = 0
-	snap.harmfulCount = 0
-	snap.dispelCount = 0
-	snap.firstDebuffType = nil
-	table.wipe(snap.helpfulByID)
-	table.wipe(snap.harmfulByID)
-	table.wipe(snap.helpfulByIDPlayer)
-	table.wipe(snap.harmfulByIDPlayer)
+	local snap = acquireSnapshot(guid)
+	resetAuraLists(snap)
+	fillSnapshotMeta(snap, unit)
 
-	if AuraCache.test.active and not UnitExists(unit) then
-		snap.canAssist = true
-		snap.isFriend = true
-		snap.isManaUser = true
-	else
-		snap.canAssist = UnitCanAssist("player", unit)
-		snap.isFriend = UnitIsFriend(unit, "player")
-		local unitClass = select(2, UnitClass(unit))
-		snap.isManaUser = unitClass ~= "ROGUE" and unitClass ~= "WARRIOR"
+	if mode == "empty" then
+		snap.status = "empty"
+		return
 	end
 
-	if AuraCache.test.active then
+	if AuraCache.test and AuraCache.test.active then
 		testOpts.now = GetTime()
 	end
 	local src = auraSource or ns.UnitAura
 	scanAuras(snap, unit, src, "HELPFUL", false)
 	scanAuras(snap, unit, src, "HARMFUL", true)
 	enrichSnapshotLCD(snap, unit)
-	snap.generation = AuraCache.generation
-	snap.dirty = false
+	snap.status = (mode == "hold") and "held" or "scanned"
 end
 
-local function markGUIDDirty(guid)
-	if guid then
-		dirtyGUIDs[guid] = true
+local function untrackToken(unit, guid)
+	if not guid or not guidTokens[guid] then return end
+	guidTokens[guid][unit] = nil
+	if not next(guidTokens[guid]) then
+		guidTokens[guid] = nil
+		dropSnapshot(guid)
 	end
 end
 
@@ -219,38 +270,27 @@ local function trackUnit(unit)
 	local guid = UnitGUID(unit)
 	local oldGuid = tokenGUID[unit]
 	if oldGuid and oldGuid ~= guid then
-		if guidTokens[oldGuid] then
-			guidTokens[oldGuid][unit] = nil
-		end
-		markGUIDDirty(oldGuid)
+		untrackToken(unit, oldGuid)
 	end
 	if guid then
 		tokenGUID[unit] = guid
 		if not guidTokens[guid] then guidTokens[guid] = {} end
 		guidTokens[guid][unit] = true
+	elseif oldGuid then
+		tokenGUID[unit] = nil
 	end
 end
 
-local function markUnitDirty(unit)
+-- Event path only marks. Units never Touched are ignored so nameplate
+-- UNIT_AURA does not populate the cache. Only GUIDs with a snapshot are
+-- marked so the dirty set cannot grow for units nobody reads.
+local function markEventUnit(unit)
+	if not unit or not tokenGUID[unit] then return end
 	trackUnit(unit)
-	markGUIDDirty(tokenGUID[unit])
-	local guid = UnitGUID(unit)
-	if guid ~= tokenGUID[unit] then
-		markGUIDDirty(guid)
+	local guid = tokenGUID[unit]
+	if guid and snapshots[guid] then
+		dirtyGUIDs[guid] = true
 	end
-end
-
-local function onDriverUpdate()
-	for guid in pairs(dirtyGUIDs) do
-		if not rebuiltThisFrame[guid] then
-			local snap = snapshots[guid]
-			if snap then
-				snap.dirty = true
-			end
-		end
-		dirtyGUIDs[guid] = nil
-	end
-	table.wipe(rebuiltThisFrame)
 end
 
 local function remapTokens()
@@ -258,16 +298,36 @@ local function remapTokens()
 		if UnitExists(token) then
 			local current = UnitGUID(token)
 			if current and current ~= guid then
-				if guidTokens[guid] then
-					guidTokens[guid][token] = nil
-				end
+				untrackToken(token, guid)
 				tokenGUID[token] = current
 				if not guidTokens[current] then guidTokens[current] = {} end
 				guidTokens[current][token] = true
-				markGUIDDirty(current)
 			end
+		else
+			untrackToken(token, guid)
+			tokenGUID[token] = nil
 		end
 	end
+end
+
+local function refreshSnapshotDispels(snap)
+	for i = 1, snap.dispelCount do
+		snap.dispels[i] = nil
+	end
+	snap.dispelCount = 0
+	snap.firstDebuffType = nil
+	for i = 1, snap.harmfulCount do
+		local record = snap.harmful[i]
+		if record.debuffType and not snap.firstDebuffType then
+			snap.firstDebuffType = record.debuffType
+		end
+		if AuraCache.canCure[record.debuffType] then
+			local dispelCount = snap.dispelCount + 1
+			snap.dispelCount = dispelCount
+			snap.dispels[dispelCount] = record
+		end
+	end
+	snap.generation = AuraCache.generation
 end
 
 local function rebuildCanCure()
@@ -286,16 +346,20 @@ local function rebuildCanCure()
 		end
 	end
 	AuraCache.generation = AuraCache.generation + 1
-	for guid in pairs(snapshots) do
-		markGUIDDirty(guid)
+	-- Do not UnitAura-scan here. SPELLS_CHANGED fires during reload while
+	-- UnitAura is still empty and would cache blank snapshots that Touch then
+	-- treats as fresh. Dispel flags are derived from records we already have.
+	for _, snap in pairs(snapshots) do
+		refreshSnapshotDispels(snap)
 	end
 end
 
 local function onDriverEvent(_, event, unit)
-	if event == "UNIT_AURA" then
-		if tokenGUID[unit] then
-			markUnitDirty(unit)
-		end
+	if event == "UNIT_AURA" or event == "UNIT_CONNECTION"
+		or event == "PARTY_MEMBER_ENABLE" or event == "PARTY_MEMBER_DISABLE"
+		or event == "UNIT_IN_RANGE_UPDATE"
+	then
+		markEventUnit(unit)
 	elseif event == "UNIT_PET" then
 		if unit == "player" then
 			rebuildCanCure()
@@ -304,16 +368,26 @@ local function onDriverEvent(_, event, unit)
 	elseif event == "SPELLS_CHANGED" or event == "PLAYER_LOGIN" then
 		rebuildCanCure()
 	elseif event == "GROUP_ROSTER_UPDATE" or event == "PLAYER_TARGET_CHANGED"
-		or event == "UNIT_TARGET" or event == "PLAYER_ENTERING_WORLD" then
+		or event == "UNIT_TARGET" then
 		remapTokens()
-	elseif event == "PLAYER_REGEN_DISABLED" and AuraCache.test.active then
+	elseif event == "PLAYER_ENTERING_WORLD" then
+		remapTokens()
+		AuraCache:InvalidateAll()
+	elseif event == "PLAYER_REGEN_DISABLED" and AuraCache.test and AuraCache.test.active then
 		AuraCache.test.Stop()
 	end
 end
 
+-- ORDERING: this frame must receive UNIT_AURA before any oUF unit frame does,
+-- otherwise a consumer's Touch runs before the GUID is marked dirty and shows
+-- stale data. This holds because oUF_AuraCache.lua is the first script in
+-- oUF_Plugins.xml (registered before any unit frame exists) and WoW dispatches
+-- events in registration order. Do not move this file later in the load order.
 local driver = CreateFrame("Frame")
-driver:SetScript("OnUpdate", onDriverUpdate)
 driver:RegisterEvent("UNIT_AURA")
+driver:RegisterEvent("UNIT_CONNECTION")
+driver:RegisterEvent("PARTY_MEMBER_ENABLE")
+driver:RegisterEvent("PARTY_MEMBER_DISABLE")
 driver:RegisterEvent("GROUP_ROSTER_UPDATE")
 driver:RegisterEvent("PLAYER_TARGET_CHANGED")
 driver:RegisterEvent("UNIT_TARGET")
@@ -321,22 +395,22 @@ driver:RegisterEvent("UNIT_PET")
 driver:RegisterEvent("PLAYER_ENTERING_WORLD")
 driver:RegisterEvent("SPELLS_CHANGED")
 driver:RegisterEvent("PLAYER_LOGIN")
+pcall(driver.RegisterEvent, driver, "UNIT_IN_RANGE_UPDATE")
 driver:SetScript("OnEvent", onDriverEvent)
 
 if LCD and LCD.RegisterCallback then
 	LCD.RegisterCallback("LUF_AuraCache", "UNIT_BUFF", function(_, unit)
-		if tokenGUID[unit] then
-			markUnitDirty(unit)
-		end
+		markEventUnit(unit)
 	end)
 end
 
 rebuildCanCure()
 
--- Multiple Touch calls for the same GUID in one frame share a single rebuild
--- so UNIT_AURA on raid1/raid2/target stays one scan, not three.
+-- First Touch of a GUID scans. Events mark the GUID dirty; the next Touch
+-- from any consumer rebuilds once and every later consumer that frame reads
+-- the same tables. A dirty mark survives until a rebuild consumes it.
 local function resolveTouchGUID(unit)
-	if AuraCache.test.active then
+	if AuraCache.test and AuraCache.test.active then
 		if testOpts.useFrameMax and testOpts.activeFrame then
 			return "LUFTEST-" .. testOpts.activeFrame
 		end
@@ -349,7 +423,9 @@ function AuraCache:Touch(unit)
 	if not unit then
 		return EMPTY_SNAP
 	end
-	if not AuraCache.test.active and not UnitExists(unit) then
+	local testing = AuraCache.test and AuraCache.test.active
+	if not testing and not UnitExists(unit) then
+		trackUnit(unit)
 		return EMPTY_SNAP
 	end
 	trackUnit(unit)
@@ -358,22 +434,25 @@ function AuraCache:Touch(unit)
 		return EMPTY_SNAP
 	end
 	local snap = snapshots[guid]
-	local needsRebuild = dirtyGUIDs[guid] or not snap or snap.dirty or snap.generation ~= AuraCache.generation
-	if needsRebuild and not rebuiltThisFrame[guid] then
+	local needsRebuild = not snap or dirtyGUIDs[guid] or snap.generation ~= AuraCache.generation
+	if snap and not needsRebuild and not testing then
+		-- UNIT_IN_RANGE_UPDATE may not exist on this client and visibility
+		-- changes do not always fire an event, so poll the two flags on read.
+		local connected = not not UnitIsConnected(unit)
+		if connected ~= snap.isConnected then
+			needsRebuild = true
+		elseif connected and snap.isVisible == false and UnitIsVisible(unit) then
+			needsRebuild = true
+		end
+	end
+	if needsRebuild then
 		rebuildSnapshot(guid, unit)
-		dirtyGUIDs[guid] = nil
-		rebuiltThisFrame[guid] = true
-	elseif needsRebuild then
-		dirtyGUIDs[guid] = nil
 	end
 	return snapshots[guid] or EMPTY_SNAP
 end
 
 function AuraCache:InvalidateAll()
-	for guid, snap in pairs(snapshots) do
-		markGUIDDirty(guid)
-		snap.dirty = true
-	end
+	AuraCache.generation = AuraCache.generation + 1
 end
 
 -- [[ TEST MODE
@@ -561,7 +640,6 @@ local function timedRefresh()
 	local refreshStart = debugprofilestop()
 	refreshVisibleFrames()
 	AuraCache.test.refreshMs = debugprofilestop() - refreshStart
-	AuraCache.test.refreshAt = debugprofilestop()
 end
 
 local function syncProfileActive(active)
@@ -579,7 +657,6 @@ local function tickTestMode(_, elapsed)
 	if testTicker.elapsed < TICK_INTERVAL or not AuraCache.test.active then return end
 	testTicker.elapsed = 0
 	testOpts.tick = (testOpts.tick or 0) + 1
-	table.wipe(rebuiltThisFrame)
 	AuraCache:InvalidateAll()
 	timedRefresh()
 end
@@ -640,9 +717,7 @@ function AuraCache.test.Stop()
 	testOpts.tick = 0
 	table.wipe(snapshots)
 	table.wipe(dirtyGUIDs)
-	table.wipe(rebuiltThisFrame)
 	driver:UnregisterEvent("PLAYER_REGEN_DISABLED")
-	AuraCache.test.refreshAt = nil
 	AuraCache.test.refreshMs = nil
 	syncProfileActive(false)
 	refreshVisibleFrames()
@@ -655,7 +730,6 @@ end
 function AuraCache.test.Refresh()
 	if not AuraCache.test.active then return end
 	syncTestOptsFromProfile()
-	table.wipe(rebuiltThisFrame)
 	AuraCache:InvalidateAll()
 	timedRefresh()
 	setRefreshTicker(testOpts.refreshAuras)

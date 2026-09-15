@@ -518,6 +518,7 @@ local function updateAurasFromSnapshot(element, unit, snap, isDebuff, filterMode
 	return currentSlot
 end
 
+-- HELPFUL|RAID membership is a Blizzard-side filter not derivable from cached records.
 local function updateAurasFromRaidFilter(element, unit, isDebuff, filterMode, maxAuras, filter, currentSlot)
 	local raidFilter = (isDebuff and "HARMFUL" or "HELPFUL") .. "|RAID"
 	for i = 1, maxAuras do
@@ -551,7 +552,8 @@ local function UpdateAuras(self, event, unit)
 	local currentSlot = 1
 
 	if element.buffs then
-		if element.buffFilter == 3 and (UnitCanAssist("player", unit) or not UnitIsVisible(unit)) then
+		-- Offline UnitAura still returns paladin/class auras; skip that scan.
+		if element.buffFilter == 3 and snap.status ~= "empty" and (UnitCanAssist("player", unit) or not UnitIsVisible(unit)) then
 			currentSlot = updateAurasFromRaidFilter(element, unit, false, element.buffFilter, maxBuffs, buffFilter .. "|RAID", currentSlot)
 		elseif element.forceShow then
 			for i = 1, maxBuffs do
@@ -1031,6 +1033,10 @@ local function Enable(self)
 		end
 
 		self:RegisterEvent("UNIT_AURA", Update)
+		self:RegisterEvent("UNIT_CONNECTION", Update)
+		self:RegisterEvent("PARTY_MEMBER_ENABLE", Update)
+		self:RegisterEvent("PARTY_MEMBER_DISABLE", Update)
+		self:RegisterEvent("UNIT_IN_RANGE_UPDATE", Update)
 		
 		if self.unit == "player" and not self.__eventless then
 			playerFrames[self] = self
@@ -1060,6 +1066,10 @@ end
 local function Disable(self)
 	if(self.SimpleAuras) then
 		self:UnregisterEvent("UNIT_AURA", Update)
+		self:UnregisterEvent("UNIT_CONNECTION", Update)
+		self:UnregisterEvent("PARTY_MEMBER_ENABLE", Update)
+		self:UnregisterEvent("PARTY_MEMBER_DISABLE", Update)
+		self:UnregisterEvent("UNIT_IN_RANGE_UPDATE", Update)
 		self:UnregisterEvent("UNIT_INVENTORY_CHANGED", SetWeaponUpdateTimer)
 		playerFrames[self] = nil
 
