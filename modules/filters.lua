@@ -133,20 +133,20 @@ function LUF.ApplyAuraFilters(frame)
 	if not auraFilters then
 		Auras.buffSpellFilter = nil
 		Auras.buffSpellFilterMode = "disabled"
-		Auras.buffSpellFilterMatch = "id"
+		Auras.buffSpellFilterMatch = "name"
 		Auras.debuffSpellFilter = nil
 		Auras.debuffSpellFilterMode = "disabled"
-		Auras.debuffSpellFilterMatch = "id"
+		Auras.debuffSpellFilterMatch = "name"
 		return
 	end
 	local buffMode = auraFilters.buffMode or "disabled"
 	local debuffMode = auraFilters.debuffMode or "disabled"
 	Auras.buffSpellFilter = LUF:GetMergedAuraFilter(auraFilters.buffs, buffMode)
 	Auras.buffSpellFilterMode = Auras.buffSpellFilter and buffMode or "disabled"
-	Auras.buffSpellFilterMatch = auraFilters.buffMatchBy == "name" and "name" or "id"
+	Auras.buffSpellFilterMatch = auraFilters.buffMatchBy ~= "id" and "name" or "id"
 	Auras.debuffSpellFilter = LUF:GetMergedAuraFilter(auraFilters.debuffs, debuffMode)
 	Auras.debuffSpellFilterMode = Auras.debuffSpellFilter and debuffMode or "disabled"
-	Auras.debuffSpellFilterMatch = auraFilters.debuffMatchBy == "name" and "name" or "id"
+	Auras.debuffSpellFilterMatch = auraFilters.debuffMatchBy ~= "id" and "name" or "id"
 end
 
 function LUF:RefreshAuraFilters(unitType)
@@ -180,8 +180,8 @@ function LUF:EnsureUnitAuraFilters(unit)
 			debuffs = {},
 			buffMode = "disabled",
 			debuffMode = "disabled",
-			buffMatchBy = "id",
-			debuffMatchBy = "id",
+			buffMatchBy = "name",
+			debuffMatchBy = "name",
 		}
 	end
 	local filters = auras.filters

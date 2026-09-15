@@ -1879,7 +1879,7 @@ function LUF:CreateConfig()
 							values = {["id"] = L["Spell ID"], ["name"] = L["Aura Name"]},
 							get = function(info)
 								local db = LUF.db.profile.units[info[1]].auras.filters
-								return db and db.buffMatchBy or "id"
+								return db and db.buffMatchBy or "name"
 							end,
 							set = function(info, value)
 								local filters = LUF:EnsureUnitAuraFilters(info[1])
@@ -1949,7 +1949,7 @@ function LUF:CreateConfig()
 							values = {["id"] = L["Spell ID"], ["name"] = L["Aura Name"]},
 							get = function(info)
 								local db = LUF.db.profile.units[info[1]].auras.filters
-								return db and db.debuffMatchBy or "id"
+								return db and db.debuffMatchBy or "name"
 							end,
 							set = function(info, value)
 								local filters = LUF:EnsureUnitAuraFilters(info[1])
