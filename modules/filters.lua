@@ -103,26 +103,20 @@ function LUF:GetMergedAuraFilter(listNames, mode)
 	end
 	local key = mode .. "\1" .. table.concat(names, "\1")
 	local cached = mergedCache[key]
-	if cached ~= nil then
-		return cached or nil
+	if cached then
+		return cached
 	end
 	local merged = { ids = {}, names = {} }
-	local hasAny = false
 	for i = 1, #names do
 		local list = compileNamedList(names[i])
 		if list then
 			for id in pairs(list.ids) do
 				merged.ids[id] = true
-				hasAny = true
 			end
 			for lower in pairs(list.names) do
 				merged.names[lower] = true
 			end
 		end
-	end
-	if not hasAny then
-		mergedCache[key] = false
-		return nil
 	end
 	mergedCache[key] = merged
 	return merged
@@ -139,16 +133,20 @@ function LUF.ApplyAuraFilters(frame)
 	if not auraFilters then
 		Auras.buffSpellFilter = nil
 		Auras.buffSpellFilterMode = "disabled"
+		Auras.buffSpellFilterMatch = "id"
 		Auras.debuffSpellFilter = nil
 		Auras.debuffSpellFilterMode = "disabled"
+		Auras.debuffSpellFilterMatch = "id"
 		return
 	end
 	local buffMode = auraFilters.buffMode or "disabled"
 	local debuffMode = auraFilters.debuffMode or "disabled"
 	Auras.buffSpellFilter = LUF:GetMergedAuraFilter(auraFilters.buffs, buffMode)
 	Auras.buffSpellFilterMode = Auras.buffSpellFilter and buffMode or "disabled"
+	Auras.buffSpellFilterMatch = auraFilters.buffMatchBy == "name" and "name" or "id"
 	Auras.debuffSpellFilter = LUF:GetMergedAuraFilter(auraFilters.debuffs, debuffMode)
 	Auras.debuffSpellFilterMode = Auras.debuffSpellFilter and debuffMode or "disabled"
+	Auras.debuffSpellFilterMatch = auraFilters.debuffMatchBy == "name" and "name" or "id"
 end
 
 function LUF:RefreshAuraFilters(unitType)
@@ -182,6 +180,8 @@ function LUF:EnsureUnitAuraFilters(unit)
 			debuffs = {},
 			buffMode = "disabled",
 			debuffMode = "disabled",
+			buffMatchBy = "id",
+			debuffMatchBy = "id",
 		}
 	end
 	local filters = auras.filters

@@ -3998,6 +3998,8 @@ function LUF:LoadDefaults()
 				debuffs = {},
 				buffMode = "disabled",
 				debuffMode = "disabled",
+				buffMatchBy = "id",
+				debuffMatchBy = "id",
 			}
 		end
 	end

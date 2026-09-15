@@ -261,6 +261,273 @@ do
 	end
 end
 
+do
+	local widgetType = "LUF_ScrollSelect"
+	local widgetVersion = 1
+	local ROW_HEIGHT = 20
+	local VISIBLE_ROWS = 10
+	local SLIDER_WIDTH = 12
+
+	local function sortKeys(a, b)
+		local na, nb = tonumber(a), tonumber(b)
+		if na and nb then
+			return na < nb
+		end
+		return tostring(a) < tostring(b)
+	end
+
+	local function refreshRows(self)
+		local keys = self.keys
+		if not keys or not self.rows then
+			return
+		end
+		local list = self.list
+		local offset = self.offset or 0
+		local maxOffset = math.max(0, #keys - VISIBLE_ROWS)
+		if offset > maxOffset then
+			offset = maxOffset
+			self.offset = offset
+		elseif offset < 0 then
+			offset = 0
+			self.offset = offset
+		end
+		LUF._searchListOffset = offset
+
+		local pad
+		self.ignoreSlider = true
+		if maxOffset < 1 then
+			pad = 8
+			self.slider:Hide()
+			self.slider:SetMinMaxValues(0, 1)
+			self.slider:SetValue(0)
+		else
+			pad = SLIDER_WIDTH + 8
+			self.slider:Show()
+			self.slider:SetMinMaxValues(0, maxOffset)
+			self.slider:SetValue(offset)
+		end
+		self.ignoreSlider = nil
+
+		for i = 1, VISIBLE_ROWS do
+			local row = self.rows[i]
+			local key = keys[offset + i]
+			row:SetPoint("RIGHT", self.listFrame, "RIGHT", -pad, 0)
+			if key and list and list[key] then
+				row.value = key
+				row.text:SetText(list[key])
+				row:Show()
+				if key == self.value then
+					row.selectedTex:Show()
+				else
+					row.selectedTex:Hide()
+				end
+			else
+				row.value = nil
+				row.text:SetText("")
+				row.selectedTex:Hide()
+				row:Hide()
+			end
+		end
+	end
+
+	local function moveScroll(self, delta)
+		if not self.keys then
+			return
+		end
+		local maxOffset = math.max(0, #self.keys - VISIBLE_ROWS)
+		self.offset = math.min(maxOffset, math.max(0, (self.offset or 0) - delta * 3))
+		refreshRows(self)
+	end
+
+	local methods = {
+		OnAcquire = function(self)
+			self:SetWidth(self.width or 400)
+			self:SetHeight(18 + 6 + VISIBLE_ROWS * ROW_HEIGHT + 8)
+			self.list = {}
+			self.keys = {}
+			self.value = nil
+			self.offset = LUF._searchListOffset or 0
+			self:SetDisabled(false)
+		end,
+		OnRelease = function(self)
+			self.list = nil
+			if self.keys then
+				wipe(self.keys)
+			end
+			self.value = nil
+			self.offset = 0
+		end,
+		OnWidthSet = function(self, width)
+			local pad = self.slider:IsShown() and (SLIDER_WIDTH + 6) or 8
+			for i = 1, VISIBLE_ROWS do
+				self.rows[i]:SetPoint("RIGHT", self.listFrame, "RIGHT", -pad, 0)
+			end
+		end,
+		SetLabel = function(self, text)
+			self.label:SetText(text or "")
+		end,
+		SetList = function(self, list, order)
+			self.list = list or {}
+			self.keys = self.keys or {}
+			wipe(self.keys)
+			if type(order) == "table" then
+				for i = 1, #order do
+					self.keys[i] = order[i]
+				end
+			else
+				for key in pairs(self.list) do
+					self.keys[#self.keys + 1] = key
+				end
+				table.sort(self.keys, sortKeys)
+			end
+			self.offset = LUF._searchListOffset or 0
+			refreshRows(self)
+		end,
+		SetValue = function(self, value)
+			self.value = value
+			refreshRows(self)
+		end,
+		GetValue = function(self)
+			return self.value
+		end,
+		SetDisabled = function(self, disabled)
+			self.disabled = disabled
+			local color = disabled and 0.5 or 1
+			self.label:SetTextColor(1, disabled and 0.5 or 0.82, 0)
+			for i = 1, VISIBLE_ROWS do
+				self.rows[i].text:SetTextColor(color, color, color)
+				if disabled then
+					self.rows[i]:Disable()
+				else
+					self.rows[i]:Enable()
+				end
+			end
+		end,
+		SetText = function() end,
+	}
+
+	local function Constructor()
+		local frame = CreateFrame("Frame", widgetType .. AceGUI:GetNextWidgetNum(widgetType), UIParent)
+		frame:SetHeight(18 + 6 + VISIBLE_ROWS * ROW_HEIGHT + 8)
+
+		local label = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+		label:SetPoint("TOPLEFT", 0, 0)
+		label:SetPoint("TOPRIGHT", 0, 0)
+		label:SetJustifyH("LEFT")
+		label:SetHeight(18)
+
+		local listFrame = CreateFrame("Frame", nil, frame, BackdropTemplateMixin and "BackdropTemplate")
+		listFrame:SetPoint("TOPLEFT", label, "BOTTOMLEFT", 0, -4)
+		listFrame:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 0, 0)
+		listFrame:SetBackdrop({
+			bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
+			edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+			tile = true,
+			tileSize = 16,
+			edgeSize = 12,
+			insets = { left = 3, right = 3, top = 3, bottom = 3 },
+		})
+		listFrame:SetBackdropColor(0, 0, 0, 0.85)
+		listFrame:SetBackdropBorderColor(0.4, 0.4, 0.4, 1)
+		listFrame:EnableMouse(true)
+		listFrame:EnableMouseWheel(true)
+
+		local slider = CreateFrame("Slider", nil, listFrame, BackdropTemplateMixin and "BackdropTemplate")
+		slider:SetOrientation("VERTICAL")
+		slider:SetWidth(SLIDER_WIDTH)
+		slider:SetPoint("TOPRIGHT", listFrame, "TOPRIGHT", -4, -6)
+		slider:SetPoint("BOTTOMRIGHT", listFrame, "BOTTOMRIGHT", -4, 6)
+		slider:SetThumbTexture("Interface\\Buttons\\UI-SliderBar-Button-Vertical")
+		slider:SetBackdrop({
+			bgFile = "Interface\\Buttons\\UI-SliderBar-Background",
+			edgeFile = "Interface\\Buttons\\UI-SliderBar-Border",
+			tile = true,
+			tileSize = 8,
+			edgeSize = 8,
+			insets = { left = 3, right = 3, top = 3, bottom = 3 },
+		})
+		slider:SetMinMaxValues(0, 1)
+		slider:SetValueStep(1)
+		slider:SetValue(0)
+		slider:EnableMouseWheel(true)
+		slider:Hide()
+
+		local widget = {
+			frame = frame,
+			label = label,
+			listFrame = listFrame,
+			slider = slider,
+			rows = {},
+			keys = {},
+			type = widgetType,
+		}
+		for name, func in pairs(methods) do
+			widget[name] = func
+		end
+		frame.obj = widget
+		listFrame.obj = widget
+		slider.obj = widget
+
+		listFrame:SetScript("OnMouseWheel", function(this, delta)
+			moveScroll(this.obj, delta)
+		end)
+		slider:SetScript("OnValueChanged", function(this, value)
+			local self = this.obj
+			if self.ignoreSlider then
+				return
+			end
+			self.offset = math.floor((value or 0) + 0.5)
+			refreshRows(self)
+		end)
+		slider:SetScript("OnMouseWheel", function(this, delta)
+			moveScroll(this.obj, delta)
+		end)
+
+		for i = 1, VISIBLE_ROWS do
+			local row = CreateFrame("Button", nil, listFrame)
+			row:SetHeight(ROW_HEIGHT)
+			row:SetPoint("TOPLEFT", listFrame, "TOPLEFT", 6, -6 - (i - 1) * ROW_HEIGHT)
+			row:SetPoint("RIGHT", listFrame, "RIGHT", -8, 0)
+			row:SetHighlightTexture([[Interface\QuestFrame\UI-QuestTitleHighlight]], "ADD")
+			row:EnableMouseWheel(true)
+			row.obj = widget
+
+			local selectedTex = row:CreateTexture(nil, "BACKGROUND")
+			selectedTex:SetAllPoints()
+			selectedTex:SetTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight")
+			selectedTex:SetBlendMode("ADD")
+			selectedTex:SetVertexColor(1, 0.82, 0)
+			selectedTex:Hide()
+			row.selectedTex = selectedTex
+
+			local text = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+			text:SetPoint("LEFT", 2, 0)
+			text:SetPoint("RIGHT", -2, 0)
+			text:SetJustifyH("LEFT")
+			row.text = text
+
+			row:SetScript("OnClick", function(this)
+				local self = this.obj
+				if self.disabled or not this.value then
+					return
+				end
+				self:SetValue(this.value)
+				self:Fire("OnValueChanged", this.value)
+			end)
+			row:SetScript("OnMouseWheel", function(this, delta)
+				moveScroll(this.obj, delta)
+			end)
+			widget.rows[i] = row
+		end
+
+		return AceGUI:RegisterAsWidget(widget)
+	end
+
+	if (AceGUI:GetWidgetVersion(widgetType) or 0) < widgetVersion then
+		AceGUI:RegisterWidgetType(widgetType, Constructor, widgetVersion)
+	end
+end
+
 function LUF:CreateConfig()
 	if self.configCreated then return end
 	self.configCreated = true
@@ -269,6 +536,15 @@ function LUF:CreateConfig()
 	local function notifyFilterUI()
 		if UpdateFilterSpellList then UpdateFilterSpellList() end
 		ACR:NotifyChange("LunaUnitFrames")
+	end
+
+	local function auraFilterAssignmentEmpty(info, field)
+		local db = LUF.db.profile.units[info[1]].auras.filters
+		if not db then return true end
+		local assigned = db[field]
+		if type(assigned) == "string" then return assigned == "" end
+		if type(assigned) == "table" then return not next(assigned) end
+		return true
 	end
 
 	local function set(info, value)
@@ -1581,7 +1857,6 @@ function LUF:CreateConfig()
 							desc = L["How to apply the buff filter list"],
 							type = "select",
 							order = 2,
-							width = "double",
 							values = {["disabled"] = L["Disabled"], ["whitelist"] = L["Whitelist"], ["blacklist"] = L["Blacklist"]},
 							get = function(info)
 								local db = LUF.db.profile.units[info[1]].auras.filters
@@ -1594,13 +1869,29 @@ function LUF:CreateConfig()
 									LUF:RefreshAuraFilters(info[1])
 								end
 							end,
-							hidden = function(info)
+							hidden = function(info) return auraFilterAssignmentEmpty(info, "buffs") end,
+						},
+						filterbuffmatch = {
+							name = L["Buff Filter Match"],
+							desc = L["How to match the filter list"],
+							type = "select",
+							order = 3,
+							values = {["id"] = L["Spell ID"], ["name"] = L["Aura Name"]},
+							get = function(info)
 								local db = LUF.db.profile.units[info[1]].auras.filters
-								if not db then return true end
-								local buffs = db.buffs
-								if type(buffs) == "string" then return buffs == "" end
-								if type(buffs) == "table" then return not next(buffs) end
-								return true
+								return db and db.buffMatchBy or "id"
+							end,
+							set = function(info, value)
+								local filters = LUF:EnsureUnitAuraFilters(info[1])
+								if filters then
+									filters.buffMatchBy = value
+									LUF:RefreshAuraFilters(info[1])
+								end
+							end,
+							hidden = function(info)
+								if auraFilterAssignmentEmpty(info, "buffs") then return true end
+								local db = LUF.db.profile.units[info[1]].auras.filters
+								return not db or db.buffMode == "disabled" or not db.buffMode
 							end,
 						},
 					},
@@ -1636,7 +1927,6 @@ function LUF:CreateConfig()
 							desc = L["How to apply the debuff filter list"],
 							type = "select",
 							order = 2,
-							width = "double",
 							values = {["disabled"] = L["Disabled"], ["whitelist"] = L["Whitelist"], ["blacklist"] = L["Blacklist"]},
 							get = function(info)
 								local db = LUF.db.profile.units[info[1]].auras.filters
@@ -1649,13 +1939,29 @@ function LUF:CreateConfig()
 									LUF:RefreshAuraFilters(info[1])
 								end
 							end,
-							hidden = function(info)
+							hidden = function(info) return auraFilterAssignmentEmpty(info, "debuffs") end,
+						},
+						filterdebuffmatch = {
+							name = L["Debuff Filter Match"],
+							desc = L["How to match the filter list"],
+							type = "select",
+							order = 3,
+							values = {["id"] = L["Spell ID"], ["name"] = L["Aura Name"]},
+							get = function(info)
 								local db = LUF.db.profile.units[info[1]].auras.filters
-								if not db then return true end
-								local debuffs = db.debuffs
-								if type(debuffs) == "string" then return debuffs == "" end
-								if type(debuffs) == "table" then return not next(debuffs) end
-								return true
+								return db and db.debuffMatchBy or "id"
+							end,
+							set = function(info, value)
+								local filters = LUF:EnsureUnitAuraFilters(info[1])
+								if filters then
+									filters.debuffMatchBy = value
+									LUF:RefreshAuraFilters(info[1])
+								end
+							end,
+							hidden = function(info)
+								if auraFilterAssignmentEmpty(info, "debuffs") then return true end
+								local db = LUF.db.profile.units[info[1]].auras.filters
+								return not db or db.debuffMode == "disabled" or not db.debuffMode
 							end,
 						},
 					},
@@ -10755,7 +11061,7 @@ function LUF:CreateConfig()
 							LUF._spellSearchText = nil
 							LUF._spellSearchResultsList = nil
 							LUF._spellSearchSelected = nil
-							LUF._searchPage = 1
+							LUF._searchListOffset = 0
 							LUF._renameFilterName = nil
 							LUF._renameFilterError = nil
 							LUF._exportString = nil
@@ -10875,7 +11181,7 @@ function LUF:CreateConfig()
 							if not LUF._selectedFilter then return end
 							LUF._spellSearchText = value
 							LUF._spellSearchSelected = nil
-							LUF._searchPage = 1
+							LUF._searchListOffset = 0
 							LUF:SearchAuras(value, function()
 								if ACR then ACR:NotifyChange("LunaUnitFrames") end
 							end)
@@ -10892,71 +11198,40 @@ function LUF:CreateConfig()
 						order = 11.4,
 						hidden = function() return not LUF:IsAuraIndexBuilding() end,
 					},
-					searchpageinfo = {
+					searchresults = {
 						name = function()
 							local results = LUF._spellSearchResultsList
-							if not results or #results == 0 then return "" end
-							local perPage = 25
-							local total = #results
-							local page = LUF._searchPage or 1
-							local maxPage = math.ceil(total / perPage)
-							return "|cffcccccc" .. string.format(L["Page %d/%d (%d results)"], page, maxPage, total) .. "|r"
+							local n = results and #results or 0
+							if n > 0 then
+								return L["Search Results"] .. " (" .. n .. ")"
+							end
+							return L["Search Results"]
 						end,
-						type = "description",
-						order = 11.5,
-						hidden = function() return not LUF._selectedFilter or not LUF._spellSearchResultsList or #LUF._spellSearchResultsList == 0 end,
-					},
-					searchprevpage = {
-						name = "<",
-						type = "execute",
-						order = 11.6,
-						width = "half",
-						hidden = function() return not LUF._selectedFilter or not LUF._spellSearchResultsList or #LUF._spellSearchResultsList <= 25 end,
-						disabled = function() return (LUF._searchPage or 1) <= 1 end,
-						func = function()
-							LUF._searchPage = math.max(1, (LUF._searchPage or 1) - 1)
-							LUF._spellSearchSelected = nil
-							ACR:NotifyChange("LunaUnitFrames")
-						end,
-					},
-					searchnextpage = {
-						name = ">",
-						type = "execute",
-						order = 11.7,
-						width = "half",
-						hidden = function() return not LUF._selectedFilter or not LUF._spellSearchResultsList or #LUF._spellSearchResultsList <= 25 end,
-						disabled = function()
-							local results = LUF._spellSearchResultsList
-							if not results then return true end
-							return (LUF._searchPage or 1) >= math.ceil(#results / 25)
-						end,
-						func = function()
-							local results = LUF._spellSearchResultsList
-							if not results then return end
-							local maxPage = math.ceil(#results / 25)
-							LUF._searchPage = math.min(maxPage, (LUF._searchPage or 1) + 1)
-							LUF._spellSearchSelected = nil
-							ACR:NotifyChange("LunaUnitFrames")
-						end,
-					},
-					searchresults = {
-						name = L["Search Results"],
 						type = "select",
+						dialogControl = "LUF_ScrollSelect",
 						order = 12,
-						width = "double",
+						width = "full",
 						hidden = function() return not LUF._selectedFilter or not LUF._spellSearchResultsList or #LUF._spellSearchResultsList == 0 end,
 						values = function()
 							local t = {}
 							local results = LUF._spellSearchResultsList
 							if not results then return t end
-							local perPage = 25
-							local page = LUF._searchPage or 1
-							local startIdx = (page - 1) * perPage + 1
-							local endIdx = math.min(page * perPage, #results)
-							for i = startIdx, endIdx do
+							for i = 1, #results do
 								local entry = results[i]
 								if entry then
 									t[tostring(entry.id)] = "|T" .. (entry.icon or 134400) .. ":16:16:0:0|t " .. entry.name .. " |cff888888(ID: " .. entry.id .. ")|r"
+								end
+							end
+							return t
+						end,
+						sorting = function()
+							local t = {}
+							local results = LUF._spellSearchResultsList
+							if not results then return t end
+							for i = 1, #results do
+								local entry = results[i]
+								if entry then
+									t[#t + 1] = tostring(entry.id)
 								end
 							end
 							return t
@@ -10985,7 +11260,7 @@ function LUF:CreateConfig()
 							LUF._spellSearchText = nil
 							LUF._spellSearchResultsList = nil
 							LUF._spellSearchSelected = nil
-							LUF._searchPage = 1
+							LUF._searchListOffset = 0
 							LUF:RefreshAuraFilters()
 							notifyFilterUI()
 						end,
