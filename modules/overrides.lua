@@ -241,6 +241,36 @@ LUF.overrides["Target"].PostUpdate = function(self, event)
 	end
 end
 
+function LUF.GetUnitRangeBand(unit)
+	if UnitIsUnit(unit, "player") then
+		return 0, 0
+	end
+	if not UnitIsConnected(unit) then
+		return
+	end
+
+	local minRange, maxRange = RC:GetRange(unit, true, LUF.db.profile.range.noItems)
+	if maxRange then
+		return minRange, maxRange
+	end
+
+	local inRange, checkedRange = UnitInRange(unit)
+	if checkedRange then
+		if inRange then
+			return 0, 40
+		end
+		return 40, 1000
+	end
+end
+
+function LUF.GetUnitRange(unit)
+	local minRange, maxRange = LUF.GetUnitRangeBand(unit)
+	if not minRange then
+		return
+	end
+	return maxRange or minRange
+end
+
 LUF.overrides["Range"] = {}
 LUF.overrides["Range"].Update = function(self, event)
 	local element = self.Range

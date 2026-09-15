@@ -440,6 +440,7 @@ local L = {
 ["IndexOfDispel"] = "Index of Dispel",
 ["IndexOfDispelDesc"] = "To display first found dispel leave blank or use 1, second found dispel use 2, 3, etc.",
 ["RaidManager"] = "Raid Manager",
+["Testing"] = "Testing",
 ["Load time: %.1f ms (frame 1: %.1f ms, frame 2: %.1f ms)"] = "Load time: %.1f ms (frame 1: %.1f ms, frame 2: %.1f ms)",
 }
 

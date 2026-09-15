@@ -4842,7 +4842,7 @@ function LUF:CreateConfig()
 				},
 			},
 			testing = {
-				name = TEST_BUILD,
+				name = L["Testing"],
 				type = "group",
 				order = 30,
 				get = getGeneral,
@@ -4871,13 +4871,13 @@ function LUF:CreateConfig()
 						width = "full",
 					},
 					auratestHeader = {
-						name = TEST_BUILD .. " " .. AURAS,
+						name = L["Testing"] .. " " .. AURAS,
 						type = "header",
 						width = "double",
 						order = 90,
 					},
 					auratest = {
-						name = TEST_BUILD .. " " .. AURAS,
+						name = L["Testing"] .. " " .. AURAS,
 						desc = PERFORMANCE_BUILD .. "\n" .. UNLOCK_FRAME,
 						type = "toggle",
 						order = 91,
@@ -10711,7 +10711,7 @@ function LUF:CreateConfig()
 	AceConfigDialog:AddToBlizOptions(Addon, L["Hide Blizzard"], Addon, "hidden")
 	AceConfigDialog:AddToBlizOptions(Addon, L["Tag Help"], Addon, "help")
 	AceConfigDialog:AddToBlizOptions(Addon, L["Auto Profiles"], Addon, "autoprofiles")
-	AceConfigDialog:AddToBlizOptions(Addon, TEST_BUILD, Addon, "testing")
+	AceConfigDialog:AddToBlizOptions(Addon, L["Testing"], Addon, "testing")
 	AceConfigDialog:AddToBlizOptions(Addon, L["Profiles"], Addon, "profile")
 
 	AceConfigDialog:SetDefaultSize(Addon, 895, 570)
