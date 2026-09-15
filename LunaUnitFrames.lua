@@ -384,6 +384,9 @@ function LUF:ProfilesChanged()
 		self:LoadDefaults()
 	end
 	
+	if self.InvalidateAuraFilterCache then
+		self:InvalidateAuraFilterCache()
+	end
 	self:LoadoUFSettings()
 	if not self.unitsSpawned then return end
 	if InCombatLockdown() then
@@ -1061,6 +1064,10 @@ function LUF.ApplySettings(frame)
 		Auras.showType = AuraConfig.bordercolor
 		Auras.disableOCC = LUF.db.profile.omnicc
 		Auras.disableBCC = LUF.db.profile.blizzardcc
+
+		if LUF.ApplyAuraFilters then
+			LUF.ApplyAuraFilters(frame)
+		end
 		
 		local auraborderType = LUF.db.profile.auraborderType
 		Auras.overlay = auraborderType and auraborderType ~= "blizzard" and "Interface\\AddOns\\LunaUnitFrames\\media\\textures\\borders\\border-" .. auraborderType

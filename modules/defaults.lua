@@ -44,6 +44,9 @@ function LUF:LoadDefaults()
 			blizzardcc = false,
 			strata = "MEDIUM",
 			range = { dist = 40, alpha = 0.4, noItems = true },
+			filters = {
+				-- Named spell-ID lists: { ["My List"] = { [spellId] = true, ... }, ... }
+			},
 		},
 	}
 
@@ -3987,4 +3990,15 @@ function LUF:LoadDefaults()
 			anchorTo = "LUFHeaderarena",
 		},
 	}
+
+	for _, unit in pairs(self.defaults.profile.units) do
+		if unit.auras and not unit.auras.filters then
+			unit.auras.filters = {
+				buffs = {},
+				debuffs = {},
+				buffMode = "disabled",
+				debuffMode = "disabled",
+			}
+		end
+	end
 end

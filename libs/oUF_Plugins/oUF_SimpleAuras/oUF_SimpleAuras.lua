@@ -48,6 +48,10 @@ Yawt.
 .overlay            - Texture for the overlay (string or number)
 .maxBuffs           - Maximum number of positive effects to display (default = 32)
 .maxDebuffs         - Maximum number of negative effects to display (default = 40)
+.buffSpellFilter    - Compiled spell lookup { ids = {}, names = {} } or nil
+.buffSpellFilterMode- "disabled", "whitelist", or "blacklist"
+.debuffSpellFilter  - Compiled spell lookup { ids = {}, names = {} } or nil
+.debuffSpellFilterMode- "disabled", "whitelist", or "blacklist"
 
 ## Attributes
 
@@ -504,13 +508,34 @@ local function passesPlayerFilter(filterMode, record)
 	return filterMode ~= 2 or record.caster == "player" or record.isPlayer
 end
 
+local function passesSpellFilter(spellFilter, spellMode, spellID, lowerName)
+	if not spellFilter or spellMode == "disabled" then
+		return true
+	end
+	local inList = (spellID and spellFilter.ids[spellID]) or (lowerName and spellFilter.names[lowerName])
+	if spellMode == "whitelist" then
+		return inList
+	end
+	if spellMode == "blacklist" then
+		return not inList
+	end
+	return true
+end
+
 local function updateAurasFromSnapshot(element, unit, snap, isDebuff, filterMode, maxAuras, filter, currentSlot)
 	local list = isDebuff and snap.harmful or snap.helpful
 	local count = isDebuff and snap.harmfulCount or snap.helpfulCount
-	local limit = math.min(count, maxAuras or count)
-	for i = 1, limit do
+	local spellFilter = isDebuff and element.debuffSpellFilter or element.buffSpellFilter
+	local spellMode = isDebuff and element.debuffSpellFilterMode or element.buffSpellFilterMode
+	local visibleCap = maxAuras or count
+	for i = 1, count do
+		if currentSlot > visibleCap then
+			break
+		end
 		local record = list[i]
-		if passesPlayerFilter(filterMode, record) then
+		if passesPlayerFilter(filterMode, record)
+			and passesSpellFilter(spellFilter, spellMode, record.spellID, record.lowerName)
+		then
 			updateIcon(element, unit, record, currentSlot, filter, isDebuff, record.index)
 			currentSlot = currentSlot + 1
 		end
@@ -521,10 +546,17 @@ end
 -- HELPFUL|RAID membership is a Blizzard-side filter not derivable from cached records.
 local function updateAurasFromRaidFilter(element, unit, isDebuff, filterMode, maxAuras, filter, currentSlot)
 	local raidFilter = (isDebuff and "HARMFUL" or "HELPFUL") .. "|RAID"
-	for i = 1, maxAuras do
-		local name, _, _, _, _, _, caster = ns.UnitAura(unit, i, raidFilter)
+	local spellFilter = isDebuff and element.debuffSpellFilter or element.buffSpellFilter
+	local spellMode = isDebuff and element.debuffSpellFilterMode or element.buffSpellFilterMode
+	for i = 1, 40 do
+		if currentSlot > maxAuras then
+			break
+		end
+		local name, _, _, _, _, _, caster, _, _, spellID = ns.UnitAura(unit, i, raidFilter)
 		if name or element.forceShow then
-			if filterMode ~= 2 or caster == "player" then
+			if (filterMode ~= 2 or caster == "player")
+				and (element.forceShow or passesSpellFilter(spellFilter, spellMode, spellID, name and strlower(name)))
+			then
 				updateIcon(element, unit, nil, currentSlot, filter, isDebuff, i)
 				currentSlot = currentSlot + 1
 			end
