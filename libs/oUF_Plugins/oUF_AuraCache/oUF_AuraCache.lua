@@ -9,11 +9,10 @@ LUF.AuraCache = AuraCache
 local tokenGUID = {}
 local guidTokens = {}
 local snapshots = {}
-local dirtyGUIDs = {} -- guid -> true. Set by event writers. Cleared ONLY inside rebuildSnapshot.
+local dirtyGUIDs = {}
 local recordPool = {}
 local testOpts = {}
 
-local serial = 0
 AuraCache.generation = 0
 AuraCache.canCure = {}
 
@@ -122,10 +121,7 @@ local function acquireSnapshot(guid)
 	return snap
 end
 
-local function fillSnapshotMeta(snap, guid, unit)
-	snap.guid = guid
-	serial = serial + 1
-	snap.serial = serial
+local function fillSnapshotMeta(snap, unit)
 	snap.generation = AuraCache.generation
 	if AuraCache.test and AuraCache.test.active and not UnitExists(unit) then
 		snap.canAssist = true
@@ -153,9 +149,9 @@ local function lowerName(name)
 	return lower
 end
 
-local function fillRecord(record, index, filter, name, icon, count, debuffType, duration, expirationTime, caster, isStealable, spellID)
+local function fillRecord(record, index, name, icon, count, debuffType, duration, expirationTime, caster, isStealable, spellID)
 	record.name = name
-	record.lowerName = name and lowerName(name) or nil
+	record.lowerName = lowerName(name)
 	record.icon = icon
 	record.count = count
 	record.debuffType = debuffType
@@ -166,7 +162,6 @@ local function fillRecord(record, index, filter, name, icon, count, debuffType, 
 	record.isPlayer = caster == "player" or caster == "vehicle" or (caster and UnitIsUnit(caster, "player")) or false
 	record.spellID = spellID
 	record.index = index
-	record.filter = filter
 end
 
 local function indexByID(byID, byIDPlayer, record)
@@ -206,7 +201,7 @@ local function scanAuras(snap, unit, src, filter, harmful)
 		local name, icon, count, debuffType, duration, expirationTime, caster, isStealable, _, spellID = src(unit, i, filter)
 		if not name then break end
 		local record = acquireRecord()
-		fillRecord(record, i, filter, name, icon, count, debuffType, duration, expirationTime, caster, isStealable, spellID)
+		fillRecord(record, i, name, icon, count, debuffType, duration, expirationTime, caster, isStealable, spellID)
 		addRecord(snap, record, harmful)
 	end
 end
@@ -245,7 +240,7 @@ local function rebuildSnapshot(guid, unit)
 
 	local snap = acquireSnapshot(guid)
 	resetAuraLists(snap)
-	fillSnapshotMeta(snap, guid, unit)
+	fillSnapshotMeta(snap, unit)
 
 	if mode == "empty" then
 		snap.status = "empty"
@@ -645,7 +640,6 @@ local function timedRefresh()
 	local refreshStart = debugprofilestop()
 	refreshVisibleFrames()
 	AuraCache.test.refreshMs = debugprofilestop() - refreshStart
-	AuraCache.test.refreshAt = debugprofilestop()
 end
 
 local function syncProfileActive(active)
@@ -724,7 +718,6 @@ function AuraCache.test.Stop()
 	table.wipe(snapshots)
 	table.wipe(dirtyGUIDs)
 	driver:UnregisterEvent("PLAYER_REGEN_DISABLED")
-	AuraCache.test.refreshAt = nil
 	AuraCache.test.refreshMs = nil
 	syncProfileActive(false)
 	refreshVisibleFrames()
