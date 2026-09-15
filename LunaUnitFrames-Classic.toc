@@ -3,7 +3,7 @@
 ## Title: Luna Unit Frames
 ## Notes: 
 ## Author: Aviana, caboyd
-## Version: 4431
+## Version: 4432
 ## Source: https://github.com/caboyd/LunaUI-ClassicFix
 ## SavedVariables: LunaUFDB
 ## OptionalDeps: Ace3, LibSharedMedia-3.0, AceGUI-3.0-SharedMediaWidgets, Clique
@@ -71,6 +71,7 @@ locales\ruRU.lua
 modules\options.lua
 modules\overrides.lua
 modules\defaults.lua
+modules\filters.lua
 modules\movers.lua
 modules\layout.lua
 

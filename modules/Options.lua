@@ -261,9 +261,291 @@ do
 	end
 end
 
+do
+	local widgetType = "LUF_ScrollSelect"
+	local widgetVersion = 1
+	local ROW_HEIGHT = 20
+	local VISIBLE_ROWS = 10
+	local SLIDER_WIDTH = 12
+
+	local function sortKeys(a, b)
+		local na, nb = tonumber(a), tonumber(b)
+		if na and nb then
+			return na < nb
+		end
+		return tostring(a) < tostring(b)
+	end
+
+	local function refreshRows(self)
+		local keys = self.keys
+		if not keys or not self.rows then
+			return
+		end
+		local list = self.list
+		local offset = self.offset or 0
+		local maxOffset = math.max(0, #keys - VISIBLE_ROWS)
+		if offset > maxOffset then
+			offset = maxOffset
+			self.offset = offset
+		elseif offset < 0 then
+			offset = 0
+			self.offset = offset
+		end
+		LUF._searchListOffset = offset
+
+		local pad
+		self.ignoreSlider = true
+		if maxOffset < 1 then
+			pad = 8
+			self.slider:Hide()
+			self.slider:SetMinMaxValues(0, 1)
+			self.slider:SetValue(0)
+		else
+			pad = SLIDER_WIDTH + 8
+			self.slider:Show()
+			self.slider:SetMinMaxValues(0, maxOffset)
+			self.slider:SetValue(offset)
+		end
+		self.ignoreSlider = nil
+
+		for i = 1, VISIBLE_ROWS do
+			local row = self.rows[i]
+			local key = keys[offset + i]
+			row:SetPoint("RIGHT", self.listFrame, "RIGHT", -pad, 0)
+			if key and list and list[key] then
+				row.value = key
+				row.text:SetText(list[key])
+				row:Show()
+				if key == self.value then
+					row.selectedTex:Show()
+				else
+					row.selectedTex:Hide()
+				end
+			else
+				row.value = nil
+				row.text:SetText("")
+				row.selectedTex:Hide()
+				row:Hide()
+			end
+		end
+	end
+
+	local function moveScroll(self, delta)
+		if not self.keys then
+			return
+		end
+		local maxOffset = math.max(0, #self.keys - VISIBLE_ROWS)
+		self.offset = math.min(maxOffset, math.max(0, (self.offset or 0) - delta * 3))
+		refreshRows(self)
+	end
+
+	local methods = {
+		OnAcquire = function(self)
+			self:SetWidth(self.width or 400)
+			self:SetHeight(18 + 6 + VISIBLE_ROWS * ROW_HEIGHT + 8)
+			self.list = {}
+			self.keys = {}
+			self.value = nil
+			self.offset = LUF._searchListOffset or 0
+			self:SetDisabled(false)
+		end,
+		OnRelease = function(self)
+			self.list = nil
+			if self.keys then
+				wipe(self.keys)
+			end
+			self.value = nil
+			self.offset = 0
+		end,
+		OnWidthSet = function(self, width)
+			local pad = self.slider:IsShown() and (SLIDER_WIDTH + 6) or 8
+			for i = 1, VISIBLE_ROWS do
+				self.rows[i]:SetPoint("RIGHT", self.listFrame, "RIGHT", -pad, 0)
+			end
+		end,
+		SetLabel = function(self, text)
+			self.label:SetText(text or "")
+		end,
+		SetList = function(self, list, order)
+			self.list = list or {}
+			self.keys = self.keys or {}
+			wipe(self.keys)
+			if type(order) == "table" then
+				for i = 1, #order do
+					self.keys[i] = order[i]
+				end
+			else
+				for key in pairs(self.list) do
+					self.keys[#self.keys + 1] = key
+				end
+				table.sort(self.keys, sortKeys)
+			end
+			self.offset = LUF._searchListOffset or 0
+			refreshRows(self)
+		end,
+		SetValue = function(self, value)
+			self.value = value
+			refreshRows(self)
+		end,
+		GetValue = function(self)
+			return self.value
+		end,
+		SetDisabled = function(self, disabled)
+			self.disabled = disabled
+			local color = disabled and 0.5 or 1
+			self.label:SetTextColor(1, disabled and 0.5 or 0.82, 0)
+			for i = 1, VISIBLE_ROWS do
+				self.rows[i].text:SetTextColor(color, color, color)
+				if disabled then
+					self.rows[i]:Disable()
+				else
+					self.rows[i]:Enable()
+				end
+			end
+		end,
+		SetText = function() end,
+	}
+
+	local function Constructor()
+		local frame = CreateFrame("Frame", widgetType .. AceGUI:GetNextWidgetNum(widgetType), UIParent)
+		frame:SetHeight(18 + 6 + VISIBLE_ROWS * ROW_HEIGHT + 8)
+
+		local label = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+		label:SetPoint("TOPLEFT", 0, 0)
+		label:SetPoint("TOPRIGHT", 0, 0)
+		label:SetJustifyH("LEFT")
+		label:SetHeight(18)
+
+		local listFrame = CreateFrame("Frame", nil, frame, BackdropTemplateMixin and "BackdropTemplate")
+		listFrame:SetPoint("TOPLEFT", label, "BOTTOMLEFT", 0, -4)
+		listFrame:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 0, 0)
+		listFrame:SetBackdrop({
+			bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
+			edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+			tile = true,
+			tileSize = 16,
+			edgeSize = 12,
+			insets = { left = 3, right = 3, top = 3, bottom = 3 },
+		})
+		listFrame:SetBackdropColor(0, 0, 0, 0.85)
+		listFrame:SetBackdropBorderColor(0.4, 0.4, 0.4, 1)
+		listFrame:EnableMouse(true)
+		listFrame:EnableMouseWheel(true)
+
+		local slider = CreateFrame("Slider", nil, listFrame, BackdropTemplateMixin and "BackdropTemplate")
+		slider:SetOrientation("VERTICAL")
+		slider:SetWidth(SLIDER_WIDTH)
+		slider:SetPoint("TOPRIGHT", listFrame, "TOPRIGHT", -4, -6)
+		slider:SetPoint("BOTTOMRIGHT", listFrame, "BOTTOMRIGHT", -4, 6)
+		slider:SetThumbTexture("Interface\\Buttons\\UI-SliderBar-Button-Vertical")
+		slider:SetBackdrop({
+			bgFile = "Interface\\Buttons\\UI-SliderBar-Background",
+			edgeFile = "Interface\\Buttons\\UI-SliderBar-Border",
+			tile = true,
+			tileSize = 8,
+			edgeSize = 8,
+			insets = { left = 3, right = 3, top = 3, bottom = 3 },
+		})
+		slider:SetMinMaxValues(0, 1)
+		slider:SetValueStep(1)
+		slider:SetValue(0)
+		slider:EnableMouseWheel(true)
+		slider:Hide()
+
+		local widget = {
+			frame = frame,
+			label = label,
+			listFrame = listFrame,
+			slider = slider,
+			rows = {},
+			keys = {},
+			type = widgetType,
+		}
+		for name, func in pairs(methods) do
+			widget[name] = func
+		end
+		frame.obj = widget
+		listFrame.obj = widget
+		slider.obj = widget
+
+		listFrame:SetScript("OnMouseWheel", function(this, delta)
+			moveScroll(this.obj, delta)
+		end)
+		slider:SetScript("OnValueChanged", function(this, value)
+			local self = this.obj
+			if self.ignoreSlider then
+				return
+			end
+			self.offset = math.floor((value or 0) + 0.5)
+			refreshRows(self)
+		end)
+		slider:SetScript("OnMouseWheel", function(this, delta)
+			moveScroll(this.obj, delta)
+		end)
+
+		for i = 1, VISIBLE_ROWS do
+			local row = CreateFrame("Button", nil, listFrame)
+			row:SetHeight(ROW_HEIGHT)
+			row:SetPoint("TOPLEFT", listFrame, "TOPLEFT", 6, -6 - (i - 1) * ROW_HEIGHT)
+			row:SetPoint("RIGHT", listFrame, "RIGHT", -8, 0)
+			row:SetHighlightTexture([[Interface\QuestFrame\UI-QuestTitleHighlight]], "ADD")
+			row:EnableMouseWheel(true)
+			row.obj = widget
+
+			local selectedTex = row:CreateTexture(nil, "BACKGROUND")
+			selectedTex:SetAllPoints()
+			selectedTex:SetTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight")
+			selectedTex:SetBlendMode("ADD")
+			selectedTex:SetVertexColor(1, 0.82, 0)
+			selectedTex:Hide()
+			row.selectedTex = selectedTex
+
+			local text = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+			text:SetPoint("LEFT", 2, 0)
+			text:SetPoint("RIGHT", -2, 0)
+			text:SetJustifyH("LEFT")
+			row.text = text
+
+			row:SetScript("OnClick", function(this)
+				local self = this.obj
+				if self.disabled or not this.value then
+					return
+				end
+				self:SetValue(this.value)
+				self:Fire("OnValueChanged", this.value)
+			end)
+			row:SetScript("OnMouseWheel", function(this, delta)
+				moveScroll(this.obj, delta)
+			end)
+			widget.rows[i] = row
+		end
+
+		return AceGUI:RegisterAsWidget(widget)
+	end
+
+	if (AceGUI:GetWidgetVersion(widgetType) or 0) < widgetVersion then
+		AceGUI:RegisterWidgetType(widgetType, Constructor, widgetVersion)
+	end
+end
+
 function LUF:CreateConfig()
 	if self.configCreated then return end
 	self.configCreated = true
+
+	local UpdateFilterSpellList
+	local function notifyFilterUI()
+		if UpdateFilterSpellList then UpdateFilterSpellList() end
+		ACR:NotifyChange("LunaUnitFrames")
+	end
+
+	local function auraFilterAssignmentEmpty(info, field)
+		local db = LUF.db.profile.units[info[1]].auras.filters
+		if not db then return true end
+		local assigned = db[field]
+		if type(assigned) == "string" then return assigned == "" end
+		if type(assigned) == "table" then return not next(assigned) end
+		return true
+	end
 
 	local function set(info, value)
 		local db = LUF.db.profile.units
@@ -1538,6 +1820,151 @@ function LUF:CreateConfig()
 					min = 1,
 					max = 40,
 					step = 1,
+				},
+				filterheader = {
+					name = L["Filter Lists"],
+					type = "header",
+					order = 28,
+				},
+				filterbuffgroup = {
+					name = L["Buff Filter List"],
+					type = "group",
+					order = 29,
+					inline = true,
+					args = {
+						filterbufflist = {
+							name = L["Select filter lists to apply to buffs"],
+							type = "multiselect",
+							order = 1,
+							width = "double",
+							values = function()
+								local t = {}
+								for name in pairs(LUF.db.profile.filters or {}) do
+									t[name] = name
+								end
+								return t
+							end,
+							get = function(info, key)
+								return LUF:AuraFilterAssignmentHas(LUF.db.profile.units[info[1]].auras.filters, "buffs", key)
+							end,
+							set = function(info, key, value)
+								LUF:SetAuraFilterAssignment(info[1], "buffs", key, value)
+								LUF:RefreshAuraFilters(info[1])
+							end,
+						},
+						filterbuffmode = {
+							name = L["Buff Filter Mode"],
+							desc = L["How to apply the buff filter list"],
+							type = "select",
+							order = 2,
+							values = {["disabled"] = L["Disabled"], ["whitelist"] = L["Whitelist"], ["blacklist"] = L["Blacklist"]},
+							get = function(info)
+								local db = LUF.db.profile.units[info[1]].auras.filters
+								return db and db.buffMode or "disabled"
+							end,
+							set = function(info, value)
+								local filters = LUF:EnsureUnitAuraFilters(info[1])
+								if filters then
+									filters.buffMode = value
+									LUF:RefreshAuraFilters(info[1])
+								end
+							end,
+							hidden = function(info) return auraFilterAssignmentEmpty(info, "buffs") end,
+						},
+						filterbuffmatch = {
+							name = L["Buff Filter Match"],
+							desc = L["How to match the filter list"],
+							type = "select",
+							order = 3,
+							values = {["id"] = L["Spell ID"], ["name"] = L["Aura Name"]},
+							get = function(info)
+								local db = LUF.db.profile.units[info[1]].auras.filters
+								return db and db.buffMatchBy or "name"
+							end,
+							set = function(info, value)
+								local filters = LUF:EnsureUnitAuraFilters(info[1])
+								if filters then
+									filters.buffMatchBy = value
+									LUF:RefreshAuraFilters(info[1])
+								end
+							end,
+							hidden = function(info)
+								if auraFilterAssignmentEmpty(info, "buffs") then return true end
+								local db = LUF.db.profile.units[info[1]].auras.filters
+								return not db or db.buffMode == "disabled" or not db.buffMode
+							end,
+						},
+					},
+				},
+				filterdebuffgroup = {
+					name = L["Debuff Filter List"],
+					type = "group",
+					order = 30,
+					inline = true,
+					args = {
+						filterdebufflist = {
+							name = L["Select filter lists to apply to debuffs"],
+							type = "multiselect",
+							order = 1,
+							width = "double",
+							values = function()
+								local t = {}
+								for name in pairs(LUF.db.profile.filters or {}) do
+									t[name] = name
+								end
+								return t
+							end,
+							get = function(info, key)
+								return LUF:AuraFilterAssignmentHas(LUF.db.profile.units[info[1]].auras.filters, "debuffs", key)
+							end,
+							set = function(info, key, value)
+								LUF:SetAuraFilterAssignment(info[1], "debuffs", key, value)
+								LUF:RefreshAuraFilters(info[1])
+							end,
+						},
+						filterdebuffmode = {
+							name = L["Debuff Filter Mode"],
+							desc = L["How to apply the debuff filter list"],
+							type = "select",
+							order = 2,
+							values = {["disabled"] = L["Disabled"], ["whitelist"] = L["Whitelist"], ["blacklist"] = L["Blacklist"]},
+							get = function(info)
+								local db = LUF.db.profile.units[info[1]].auras.filters
+								return db and db.debuffMode or "disabled"
+							end,
+							set = function(info, value)
+								local filters = LUF:EnsureUnitAuraFilters(info[1])
+								if filters then
+									filters.debuffMode = value
+									LUF:RefreshAuraFilters(info[1])
+								end
+							end,
+							hidden = function(info) return auraFilterAssignmentEmpty(info, "debuffs") end,
+						},
+						filterdebuffmatch = {
+							name = L["Debuff Filter Match"],
+							desc = L["How to match the filter list"],
+							type = "select",
+							order = 3,
+							values = {["id"] = L["Spell ID"], ["name"] = L["Aura Name"]},
+							get = function(info)
+								local db = LUF.db.profile.units[info[1]].auras.filters
+								return db and db.debuffMatchBy or "name"
+							end,
+							set = function(info, value)
+								local filters = LUF:EnsureUnitAuraFilters(info[1])
+								if filters then
+									filters.debuffMatchBy = value
+									LUF:RefreshAuraFilters(info[1])
+								end
+							end,
+							hidden = function(info)
+								if auraFilterAssignmentEmpty(info, "debuffs") then return true end
+								local db = LUF.db.profile.units[info[1]].auras.filters
+								return not db or db.debuffMode == "disabled" or not db.debuffMode
+							end,
+						},
+					},
 				},
 			},
 		},
@@ -3242,7 +3669,7 @@ function LUF:CreateConfig()
 					},
 				},
 				elite = {
-					name = L["elite"],
+					name = ELITE,
 					type = "group",
 					order = 11,
 					inline = true,
@@ -3250,7 +3677,7 @@ function LUF:CreateConfig()
 					args = {
 						enabled = {
 							name = ENABLE,
-							desc = string.format(L["Enable or disable the %s."],L["elite"]),
+							desc = string.format(L["Enable or disable the %s."],ELITE),
 							type = "toggle",
 							order = 1,
 							set = function(info, value)
@@ -3278,7 +3705,7 @@ function LUF:CreateConfig()
 							type = "select",
 							order = 3,
 							hidden = function(info) return (info[1] ~= "player" and info[1] ~= "pet") end,
-							values = {["elite"] = L["elite"], ["rare"] = L["rare"]},
+							values = {["elite"] = ELITE, ["rare"] = ITEM_QUALITY3_DESC},
 							set = function(info, value)
 								set(info, value)
 								if info[1] == "player" then
@@ -10455,6 +10882,408 @@ function LUF:CreateConfig()
 					},
 				},
 			} or nil,
+			filters = {
+				name = L["Filters"],
+				type = "group",
+				order = 26.5,
+				args = {
+					desc = {
+						name = L["Create and manage reusable aura filter lists"],
+						type = "description",
+						order = 0.5,
+						fontSize = "medium",
+					},
+					helptip = {
+						name = "|cff888888" .. L["Filters help tip"] .. "|r",
+						type = "description",
+						order = 0.6,
+					},
+					togglecreate = {
+						name = function() return LUF._showCreateForm and L["Hide Create Form"] or L["New Filter List"] end,
+						type = "execute",
+						order = 1,
+						width = "normal",
+						func = function()
+							LUF._showCreateForm = not LUF._showCreateForm
+							LUF._filterNameError = nil
+							ACR:NotifyChange("LunaUnitFrames")
+						end,
+					},
+					toggleimport = {
+						name = function() return LUF._showImportForm and L["Hide Import"] or L["Import"] end,
+						type = "execute",
+						order = 1.1,
+						width = "normal",
+						func = function()
+							LUF._showImportForm = not LUF._showImportForm
+							LUF._importError = nil
+							ACR:NotifyChange("LunaUnitFrames")
+						end,
+					},
+					creategroup = {
+						name = L["New Filter List"],
+						type = "group",
+						order = 2,
+						inline = true,
+						hidden = function() return not LUF._showCreateForm end,
+						args = {
+							newname = {
+								name = L["Name for the new filter list"],
+								type = "input",
+								order = 1,
+								get = function() return LUF._newFilterName or "" end,
+								set = function(info, value)
+									LUF._newFilterName = value
+									LUF._filterNameError = nil
+									ACR:NotifyChange("LunaUnitFrames")
+								end,
+							},
+							create = {
+								name = L["Create"],
+								type = "execute",
+								order = 2,
+								width = "half",
+								disabled = function() return not LUF._newFilterName or LUF._newFilterName == "" end,
+								func = function()
+									local name = LUF._newFilterName
+									if not name or name == "" then return end
+									if not LUF.db.profile.filters then LUF.db.profile.filters = {} end
+									if LUF.db.profile.filters[name] then
+										LUF._filterNameError = L["Filter name already exists"]
+										ACR:NotifyChange("LunaUnitFrames")
+										return
+									end
+									LUF.db.profile.filters[name] = {}
+									LUF._newFilterName = nil
+									LUF._filterNameError = nil
+									LUF._selectedFilter = name
+									LUF._showCreateForm = false
+									notifyFilterUI()
+								end,
+							},
+							nameerror = {
+								name = function() return "|cffff4444" .. (LUF._filterNameError or "") .. "|r" end,
+								type = "description",
+								order = 3,
+								hidden = function() return not LUF._filterNameError end,
+							},
+						},
+					},
+					importgroup = {
+						name = L["Import"],
+						type = "group",
+						order = 2.5,
+						inline = true,
+						hidden = function() return not LUF._showImportForm end,
+						args = {
+							importdesc = {
+								name = "|cff888888" .. L["Import desc"] .. "|r",
+								type = "description",
+								order = 0,
+							},
+							importstring = {
+								name = L["Import"],
+								type = "input",
+								order = 1,
+								width = "double",
+								get = function() return "" end,
+								set = function(info, value)
+									if not value or value == "" then return end
+									local name, idStr = value:match("^(.+):(.+)$")
+									if not name or not idStr then
+										LUF._importError = L["Import format error"]
+										ACR:NotifyChange("LunaUnitFrames")
+										return
+									end
+									name = strtrim(name)
+									if name == "" then
+										LUF._importError = L["Import format error"]
+										ACR:NotifyChange("LunaUnitFrames")
+										return
+									end
+									local newList = {}
+									local count = 0
+									for idPart in idStr:gmatch("[^,]+") do
+										local id = tonumber(strtrim(idPart))
+										if id then
+											newList[id] = true
+											count = count + 1
+										end
+									end
+									if count == 0 then
+										LUF._importError = L["Import format error"]
+										ACR:NotifyChange("LunaUnitFrames")
+										return
+									end
+									if not LUF.db.profile.filters then LUF.db.profile.filters = {} end
+									LUF.db.profile.filters[name] = newList
+									LUF._selectedFilter = name
+									LUF._importError = nil
+									LUF._showImportForm = false
+									LUF:RefreshAuraFilters()
+									notifyFilterUI()
+								end,
+							},
+							importerror = {
+								name = function() return "|cffff4444" .. (LUF._importError or "") .. "|r" end,
+								type = "description",
+								order = 2,
+								hidden = function() return not LUF._importError end,
+							},
+						},
+					},
+					listheader = {
+						name = L["Filter Lists"],
+						type = "header",
+						order = 3,
+						hidden = function()
+							return not (LUF.db.profile.filters and next(LUF.db.profile.filters))
+						end,
+					},
+					selectfilter = {
+						name = L["Filter Lists"],
+						desc = L["Select a filter list to edit"],
+						type = "select",
+						order = 4,
+						hidden = function()
+							return not (LUF.db.profile.filters and next(LUF.db.profile.filters))
+						end,
+						values = function()
+							local t = {}
+							for name in pairs(LUF.db.profile.filters or {}) do
+								t[name] = name
+							end
+							return t
+						end,
+						get = function() return LUF._selectedFilter end,
+						set = function(info, value)
+							LUF._selectedFilter = value
+							LUF._spellSearchText = nil
+							LUF._spellSearchResultsList = nil
+							LUF._spellSearchSelected = nil
+							LUF._searchListOffset = 0
+							LUF._renameFilterName = nil
+							LUF._renameFilterError = nil
+							LUF._exportString = nil
+							notifyFilterUI()
+						end,
+					},
+					deletefilter = {
+						name = DELETE,
+						desc = L["Delete this filter list"],
+						type = "execute",
+						order = 4.1,
+						width = "half",
+						confirm = true,
+						hidden = function() return not LUF._selectedFilter end,
+						func = function()
+							if not (LUF._selectedFilter and LUF.db.profile.filters) then return end
+							local delName = LUF._selectedFilter
+							LUF.db.profile.filters[delName] = nil
+							LUF:ClearAuraFilterName(delName)
+							LUF._selectedFilter = nil
+							LUF:RefreshAuraFilters()
+							notifyFilterUI()
+						end,
+					},
+					exportbtn = {
+						name = L["Export"],
+						desc = L["Export string desc"],
+						type = "execute",
+						order = 4.2,
+						width = "half",
+						hidden = function() return not LUF._selectedFilter end,
+						func = function()
+							if LUF._exportString then
+								LUF._exportString = nil
+								ACR:NotifyChange("LunaUnitFrames")
+								return
+							end
+							if not LUF._selectedFilter or not LUF.db.profile.filters then return end
+							local list = LUF.db.profile.filters[LUF._selectedFilter]
+							if not list then return end
+							local ids = {}
+							for id in pairs(list) do
+								tinsert(ids, tostring(id))
+							end
+							table.sort(ids, function(a, b) return tonumber(a) < tonumber(b) end)
+							LUF._exportString = LUF._selectedFilter .. ":" .. table.concat(ids, ",")
+							ACR:NotifyChange("LunaUnitFrames")
+						end,
+					},
+					renameinput = {
+						name = L["Rename"],
+						desc = L["Rename this filter list"],
+						type = "input",
+						order = 4.5,
+						hidden = function() return not LUF._selectedFilter end,
+						get = function() return LUF._renameFilterName or "" end,
+						set = function(info, value) LUF._renameFilterName = value LUF._renameFilterError = nil end,
+					},
+					renameconfirm = {
+						name = L["Rename"],
+						type = "execute",
+						order = 4.6,
+						width = "half",
+						hidden = function() return not LUF._selectedFilter end,
+						disabled = function() return not LUF._renameFilterName or LUF._renameFilterName == "" end,
+						func = function()
+							local oldName = LUF._selectedFilter
+							local newName = LUF._renameFilterName
+							if not oldName or not newName or newName == "" then return end
+							if not LUF.db.profile.filters or not LUF.db.profile.filters[oldName] then return end
+							if newName == oldName then return end
+							if LUF.db.profile.filters[newName] then
+								LUF._renameFilterError = L["Filter name already exists"]
+								ACR:NotifyChange("LunaUnitFrames")
+								return
+							end
+							LUF.db.profile.filters[newName] = LUF.db.profile.filters[oldName]
+							LUF.db.profile.filters[oldName] = nil
+							LUF:ReplaceAuraFilterName(oldName, newName)
+							LUF._selectedFilter = newName
+							LUF._renameFilterName = nil
+							LUF._renameFilterError = nil
+							LUF:RefreshAuraFilters()
+							notifyFilterUI()
+						end,
+					},
+					renameerror = {
+						name = function() return "|cffff4444" .. (LUF._renameFilterError or "") .. "|r" end,
+						type = "description",
+						order = 4.7,
+						hidden = function() return not LUF._renameFilterError end,
+					},
+					exportcopybox = {
+						name = L["Export"],
+						type = "input",
+						order = 4.8,
+						width = "full",
+						hidden = function() return not LUF._exportString end,
+						get = function() return LUF._exportString or "" end,
+						set = function() LUF._exportString = nil ACR:NotifyChange("LunaUnitFrames") end,
+					},
+					spellsheader = {
+						name = L["Add Aura"],
+						type = "header",
+						order = 10,
+						hidden = function() return not LUF._selectedFilter end,
+					},
+					searchinput = {
+						name = L["Search by aura name or enter an aura ID"],
+						desc = L["Aura search desc"],
+						type = "input",
+						order = 11,
+						width = "double",
+						hidden = function() return not LUF._selectedFilter end,
+						get = function() return LUF._spellSearchText or "" end,
+						set = function(info, value)
+							if not LUF._selectedFilter then return end
+							LUF._spellSearchText = value
+							LUF._spellSearchSelected = nil
+							LUF._searchListOffset = 0
+							LUF:SearchAuras(value, function()
+								if ACR then ACR:NotifyChange("LunaUnitFrames") end
+							end)
+							ACR:NotifyChange("LunaUnitFrames")
+						end,
+					},
+					searchindexstatus = {
+						name = function()
+							local p = LUF._spellIndexProgress
+							if not p then return "" end
+							return "|cffcccccc" .. string.format(L["Building aura index"], math.floor(p * 100)) .. "|r"
+						end,
+						type = "description",
+						order = 11.4,
+						hidden = function() return not LUF:IsAuraIndexBuilding() end,
+					},
+					searchresults = {
+						name = function()
+							local results = LUF._spellSearchResultsList
+							local n = results and #results or 0
+							if n > 0 then
+								return L["Search Results"] .. " (" .. n .. ")"
+							end
+							return L["Search Results"]
+						end,
+						type = "select",
+						dialogControl = "LUF_ScrollSelect",
+						order = 12,
+						width = "full",
+						hidden = function() return not LUF._selectedFilter or not LUF._spellSearchResultsList or #LUF._spellSearchResultsList == 0 end,
+						values = function()
+							local t = {}
+							local results = LUF._spellSearchResultsList
+							if not results then return t end
+							for i = 1, #results do
+								local entry = results[i]
+								if entry then
+									t[tostring(entry.id)] = "|T" .. (entry.icon or 134400) .. ":16:16:0:0|t " .. entry.name .. " |cff888888(ID: " .. entry.id .. ")|r"
+								end
+							end
+							return t
+						end,
+						sorting = function()
+							local t = {}
+							local results = LUF._spellSearchResultsList
+							if not results then return t end
+							for i = 1, #results do
+								local entry = results[i]
+								if entry then
+									t[#t + 1] = tostring(entry.id)
+								end
+							end
+							return t
+						end,
+						get = function() return LUF._spellSearchSelected end,
+						set = function(info, value)
+							LUF._spellSearchSelected = value
+						end,
+					},
+					addselected = {
+						name = ADD,
+						desc = L["Add this aura to the filter list"],
+						type = "execute",
+						order = 13,
+						width = "half",
+						hidden = function() return not LUF._selectedFilter or not LUF._spellSearchResultsList or #LUF._spellSearchResultsList == 0 end,
+						disabled = function() return not LUF._spellSearchSelected end,
+						func = function()
+							if not LUF._selectedFilter or not LUF._spellSearchSelected then return end
+							local list = LUF.db.profile.filters[LUF._selectedFilter]
+							if not list then return end
+							local id = tonumber(LUF._spellSearchSelected)
+							if id then
+								list[id] = true
+							end
+							LUF._spellSearchText = nil
+							LUF._spellSearchResultsList = nil
+							LUF._spellSearchSelected = nil
+							LUF._searchListOffset = 0
+							LUF:RefreshAuraFilters()
+							notifyFilterUI()
+						end,
+					},
+					spelllistheader = {
+						name = L["Auras in Filter"],
+						type = "header",
+						order = 19,
+						hidden = function() return not LUF._selectedFilter end,
+					},
+					spelllist = {
+						name = "",
+						type = "group",
+						order = 20,
+						inline = true,
+						hidden = function() return not LUF._selectedFilter end,
+						args = {},
+						plugins = {
+							spells = {},
+						},
+					},
+				},
+			},
 			hidden = {
 				name = L["Hide Blizzard"],
 				type = "group",
@@ -10659,6 +11488,56 @@ function LUF:CreateConfig()
 			end
 		end
 	end
+
+	local updatingFilterList = false
+	UpdateFilterSpellList = function()
+		if updatingFilterList then return end
+		updatingFilterList = true
+		local spells = {}
+		local filterName = LUF._selectedFilter
+		if filterName and LUF.db.profile.filters and LUF.db.profile.filters[filterName] then
+			local order = 1
+			for spellId in pairs(LUF.db.profile.filters[filterName]) do
+				local spellName, spellIcon = LUF:GetSpellNameIcon(spellId)
+				spellName = spellName or ("Aura #" .. spellId)
+				spellIcon = spellIcon or 134400
+				spells["info_" .. spellId] = {
+					name = "|T" .. spellIcon .. ":18:18:0:0|t " .. spellName .. " |cff888888(" .. spellId .. ")|r",
+					type = "description",
+					order = order,
+					width = "normal",
+					fontSize = "medium",
+				}
+				spells["del_" .. spellId] = {
+					name = "",
+					desc = L["Remove this aura from the filter list"],
+					type = "execute",
+					image = "Interface\\Buttons\\UI-GroupLoot-Pass-Up",
+					imageWidth = 14,
+					imageHeight = 14,
+					order = order + 0.1,
+					width = "half",
+					confirm = true,
+					func = function()
+						LUF.db.profile.filters[filterName][spellId] = nil
+						LUF:RefreshAuraFilters()
+						notifyFilterUI()
+					end,
+				}
+				order = order + 1
+			end
+			if order == 1 then
+				spells["empty"] = {
+					name = "|cff666666" .. L["No auras added yet"] .. "|r",
+					type = "description",
+					order = 1,
+				}
+			end
+		end
+		aceoptions.args.filters.args.spelllist.plugins.spells = spells
+		updatingFilterList = false
+	end
+	UpdateFilterSpellList()
 	local i = 3
 	for k in pairs(InfoTags) do
 		aceoptions.args.help.args[k] = {
@@ -10709,6 +11588,7 @@ function LUF:CreateConfig()
 		AceConfigDialog:AddToBlizOptions(Addon, L[unit], Addon, unit)
 	end
 	AceConfigDialog:AddToBlizOptions(Addon, L["Hide Blizzard"], Addon, "hidden")
+	AceConfigDialog:AddToBlizOptions(Addon, L["Filters"], Addon, "filters")
 	AceConfigDialog:AddToBlizOptions(Addon, L["Tag Help"], Addon, "help")
 	AceConfigDialog:AddToBlizOptions(Addon, L["Auto Profiles"], Addon, "autoprofiles")
 	AceConfigDialog:AddToBlizOptions(Addon, L["Testing"], Addon, "testing")
