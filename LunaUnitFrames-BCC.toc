@@ -3,7 +3,7 @@
 ## Title: Luna Unit Frames
 ## Notes: 
 ## Author: Aviana, caboyd
-## Version: 4428
+## Version: 4429
 ## Source: https://github.com/caboyd/LunaUI-ClassicFix
 ## SavedVariables: LunaUFDB
 ## OptionalDeps: Ace3, LibSharedMedia-3.0, AceGUI-3.0-SharedMediaWidgets, Clique
