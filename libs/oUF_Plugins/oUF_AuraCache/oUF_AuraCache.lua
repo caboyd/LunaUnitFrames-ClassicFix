@@ -281,14 +281,31 @@ local function trackUnit(unit)
 	end
 end
 
--- Event path only marks. Units never Touched are ignored so nameplate
--- UNIT_AURA does not populate the cache. Only GUIDs with a snapshot are
--- marked so the dirty set cannot grow for units nobody reads.
+-- First Touch of a GUID scans. Events mark the GUID dirty; the next Touch
+-- from any consumer rebuilds once and every later consumer that frame reads
+-- the same tables. A dirty mark survives until a rebuild consumes it.
+local function resolveTouchGUID(unit)
+	if AuraCache.test and AuraCache.test.active then
+		if testOpts.useFrameMax and testOpts.activeFrame then
+			return "LUFTEST-" .. testOpts.activeFrame
+		end
+		return "LUFTEST"
+	end
+	return UnitGUID(unit)
+end
+
+-- Event path only marks. Nameplate UNIT_AURA must not start tracking a token
+-- (that would populate guidTokens for units nobody reads). Existing snapshots
+-- are dirtied by GUID so UNIT_AURA("player") still invalidates the raid-frame
+-- snapshot for the same person.
 local function markEventUnit(unit)
-	if not unit or not tokenGUID[unit] then return end
-	trackUnit(unit)
-	local guid = tokenGUID[unit]
-	if guid and snapshots[guid] then
+	if not unit then return end
+	local guid = resolveTouchGUID(unit)
+	if not guid then return end
+	if tokenGUID[unit] then
+		trackUnit(unit)
+	end
+	if snapshots[guid] then
 		dirtyGUIDs[guid] = true
 	end
 end
@@ -357,7 +374,6 @@ end
 local function onDriverEvent(_, event, unit)
 	if event == "UNIT_AURA" or event == "UNIT_CONNECTION"
 		or event == "PARTY_MEMBER_ENABLE" or event == "PARTY_MEMBER_DISABLE"
-		or event == "UNIT_IN_RANGE_UPDATE"
 	then
 		markEventUnit(unit)
 	elseif event == "UNIT_PET" then
@@ -378,11 +394,9 @@ local function onDriverEvent(_, event, unit)
 	end
 end
 
--- ORDERING: this frame must receive UNIT_AURA before any oUF unit frame does,
--- otherwise a consumer's Touch runs before the GUID is marked dirty and shows
--- stale data. This holds because oUF_AuraCache.lua is the first script in
--- oUF_Plugins.xml (registered before any unit frame exists) and WoW dispatches
--- events in registration order. Do not move this file later in the load order.
+-- Unitless RegisterEvent on this frame can run AFTER oUF unit frames, which
+-- use RegisterUnitEvent. Do not rely on this driver to beat consumer Touch.
+-- Unit-frame OnEvent is wrapped below so the GUID is dirtied first.
 local driver = CreateFrame("Frame")
 driver:RegisterEvent("UNIT_AURA")
 driver:RegisterEvent("UNIT_CONNECTION")
@@ -395,7 +409,6 @@ driver:RegisterEvent("UNIT_PET")
 driver:RegisterEvent("PLAYER_ENTERING_WORLD")
 driver:RegisterEvent("SPELLS_CHANGED")
 driver:RegisterEvent("PLAYER_LOGIN")
-pcall(driver.RegisterEvent, driver, "UNIT_IN_RANGE_UPDATE")
 driver:SetScript("OnEvent", onDriverEvent)
 
 if LCD and LCD.RegisterCallback then
@@ -406,17 +419,38 @@ end
 
 rebuildCanCure()
 
--- First Touch of a GUID scans. Events mark the GUID dirty; the next Touch
--- from any consumer rebuilds once and every later consumer that frame reads
--- the same tables. A dirty mark survives until a rebuild consumes it.
-local function resolveTouchGUID(unit)
-	if AuraCache.test and AuraCache.test.active then
-		if testOpts.useFrameMax and testOpts.activeFrame then
-			return "LUFTEST-" .. testOpts.activeFrame
+-- oUF unit frames RegisterUnitEvent UNIT_AURA, which Classic can dispatch
+-- before this file's unitless driver. Wrap OnEvent so the snapshot is marked
+-- dirty before Highlight / SimpleAuras / RaidStatusIndicators call Touch.
+do
+	local Private = ns.oUF and ns.oUF.Private
+	local frame_metatable = Private and Private.frame_metatable
+	local index = frame_metatable and frame_metatable.__index
+	if index and index.RegisterEvent then
+		local origRegister = index.RegisterEvent
+		local auraEvents = {
+			UNIT_AURA = true,
+			UNIT_CONNECTION = true,
+			PARTY_MEMBER_ENABLE = true,
+			PARTY_MEMBER_DISABLE = true,
+		}
+		function index:RegisterEvent(event, func, unitless)
+			local result = origRegister(self, event, func, unitless)
+			if not self.__LUFAuraNotify then
+				local inner = self:GetScript("OnEvent")
+				if inner then
+					self.__LUFAuraNotify = true
+					self:SetScript("OnEvent", function(frame, ev, ...)
+						if auraEvents[ev] then
+							markEventUnit(...)
+						end
+						return inner(frame, ev, ...)
+					end)
+				end
+			end
+			return result
 		end
-		return "LUFTEST"
 	end
-	return UnitGUID(unit)
 end
 
 function AuraCache:Touch(unit)
@@ -436,8 +470,7 @@ function AuraCache:Touch(unit)
 	local snap = snapshots[guid]
 	local needsRebuild = not snap or dirtyGUIDs[guid] or snap.generation ~= AuraCache.generation
 	if snap and not needsRebuild and not testing then
-		-- UNIT_IN_RANGE_UPDATE may not exist on this client and visibility
-		-- changes do not always fire an event, so poll the two flags on read.
+		-- Visibility changes do not always fire an event, so poll on read.
 		local connected = not not UnitIsConnected(unit)
 		if connected ~= snap.isConnected then
 			needsRebuild = true

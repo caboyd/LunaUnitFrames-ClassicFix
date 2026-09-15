@@ -373,7 +373,6 @@ local function Update(self, event, unit)
 	unit = unit or self.unit
 	if event == "UNIT_AURA" or event == "UNIT_CONNECTION"
 		or event == "PARTY_MEMBER_ENABLE" or event == "PARTY_MEMBER_DISABLE"
-		or event == "UNIT_IN_RANGE_UPDATE"
 	then
 		return runUpdate(self, unit, false, true)
 	elseif event == "ForceUpdate" or event == "RefreshUnit" or event == "OnShow" then
@@ -438,7 +437,6 @@ local function Enable(self)
 		self:RegisterEvent("UNIT_CONNECTION", Path)
 		self:RegisterEvent("PARTY_MEMBER_ENABLE", Path)
 		self:RegisterEvent("PARTY_MEMBER_DISABLE", Path)
-		self:RegisterEvent("UNIT_IN_RANGE_UPDATE", Path)
 		self:RegisterEvent("UNIT_THREAT_SITUATION_UPDATE", Path)
 		self:RegisterEvent("SPELLS_CHANGED", Path, true)
 		self:RegisterEvent("UNIT_PET", Path)
@@ -461,7 +459,6 @@ local function Disable(self)
 		self:UnregisterEvent("UNIT_CONNECTION", Path)
 		self:UnregisterEvent("PARTY_MEMBER_ENABLE", Path)
 		self:UnregisterEvent("PARTY_MEMBER_DISABLE", Path)
-		self:UnregisterEvent("UNIT_IN_RANGE_UPDATE", Path)
 		self:UnregisterEvent("UNIT_THREAT_SITUATION_UPDATE", Path)
 		self:UnregisterEvent("SPELLS_CHANGED", Path)
 		self:UnregisterEvent("UNIT_PET", Path)

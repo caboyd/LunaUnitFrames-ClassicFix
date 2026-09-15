@@ -1036,7 +1036,6 @@ local function Enable(self)
 		self:RegisterEvent("UNIT_CONNECTION", Update)
 		self:RegisterEvent("PARTY_MEMBER_ENABLE", Update)
 		self:RegisterEvent("PARTY_MEMBER_DISABLE", Update)
-		self:RegisterEvent("UNIT_IN_RANGE_UPDATE", Update)
 		
 		if self.unit == "player" and not self.__eventless then
 			playerFrames[self] = self
@@ -1069,7 +1068,6 @@ local function Disable(self)
 		self:UnregisterEvent("UNIT_CONNECTION", Update)
 		self:UnregisterEvent("PARTY_MEMBER_ENABLE", Update)
 		self:UnregisterEvent("PARTY_MEMBER_DISABLE", Update)
-		self:UnregisterEvent("UNIT_IN_RANGE_UPDATE", Update)
 		self:UnregisterEvent("UNIT_INVENTORY_CHANGED", SetWeaponUpdateTimer)
 		playerFrames[self] = nil
 

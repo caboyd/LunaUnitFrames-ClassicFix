@@ -118,7 +118,7 @@ LUF.overrides["CastBar"].PostCastStart = function(self, unit)
 		barColor =  LUF.db.profile.colors.channel
 	end
 	if self.notInterruptible then
-		barColor = LUF.db.profile.colors.castnotinterrruptible
+		barColor = LUF.db.profile.colors.castnotinterruptible
 	end
 	self:SetStatusBarColor(barColor.r, barColor.g, barColor.b)
 	--Only turn shield on if necessary
