@@ -1613,7 +1613,10 @@ local function TagEventHandler(self, event, unitOrGuids, ...)
 	end
 
 	for _, fs in next, strings do
-		if fs:IsVisible() then
+		-- IsVisible() is too strict: Castbar tags are children of a hidden bar, so
+		-- UNIT_SPELLCAST_START would skip them. IsShown() on the fontstring plus
+		-- the unit frame being visible still skips hidden header children.
+		if fs:IsShown() and fs.parent:IsVisible() then
 			local shouldUpdate
 			if unitlessEvents[event] then
 				shouldUpdate = true

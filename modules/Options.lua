@@ -5227,13 +5227,13 @@ function LUF:CreateConfig()
 								type = "color",
 								order = 2,
 							},
-							castnotinterrruptible = {
+							castnotinterruptible = {
 								name = L["Not interruptible cast"],
 								desc = L["Color of cast bar when cast not interruptible"],
 								type = "color",
 								order = 3,
 							},
-							castnotinterrruptibletext = {
+							castnotinterruptibletext = {
 								name = L["Not interruptible cast text"],
 								desc = L["Color of cast bar text when cast not interruptible"],
 								type = "color",

@@ -93,8 +93,8 @@ function LUF:LoadDefaults()
 		--Cast
 		channel = {r = 0.25, g = 0.25, b = 1.0}, --???
 		cast = {r = 1.0, g = 0.70, b = 0.30}, --???
-		castnotinterrruptible = {r = 0.30, g = 0.30, b = 0.30}, --???
-		castnotinterrruptibletext = {r = 1.0, g = 1.0, b = 1.0}, --???
+		castnotinterruptible = {r = 0.30, g = 0.30, b = 0.30}, --???
+		castnotinterruptibletext = {r = 1.0, g = 1.0, b = 1.0}, --???
 		--XP
 		normal = {r = 0.58, g = 0.0, b = 0.55}, --???
 		rested = {r = 0.0, g = 0.39, b = 0.88}, --???
