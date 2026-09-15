@@ -78,42 +78,41 @@ local _PATTERN = '%[..-%]+'
 -- https://github.com/WeakAuras/WeakAuras2/blob/87efa697f8e63cef943cd7a6341843f175e53466/WeakAuras/AuraEnvironment.lua#L73
 -- UTF-8 Sub is pretty commonly needed
 local WA_Utf8Sub = function(input, size)
-	local output = ""
 	if type(input) ~= "string" then
-		return output
+		return ""
 	end
+	local parts = {}
+	local partCount = 0
 	local i = 1
-	while (size > 0) do
+	while size > 0 do
 		local byte = input:byte(i)
 		if not byte then
-			return output
-		end
-		if byte < 128 then
-			-- ASCII byte
-			output = output .. input:sub(i, i)
-			size = size - 1
-	  	elseif byte < 192 then
-			-- Continuation bytes
-			output = output .. input:sub(i, i)
-	  	elseif byte < 244 then
-			-- Start bytes
-			output = output .. input:sub(i, i)
-			size = size - 1
-	  	end
-	  	i = i + 1
-	end
-
-	-- Add any bytes that are part of the sequence
-	while (true) do
-	  	local byte = input:byte(i)
-	  	if byte and byte >= 128 and byte < 192 then
-			output = output .. input:sub(i, i)
-	  	else
 			break
-	  	end
-	  	i = i + 1
+		end
+		local start = i
+		if byte < 128 then
+			i = i + 1
+			size = size - 1
+		elseif byte < 192 then
+			i = i + 1
+		elseif byte < 244 then
+			i = i + 1
+			size = size - 1
+		else
+			i = i + 1
+		end
+		while true do
+			byte = input:byte(i)
+			if byte and byte >= 128 and byte < 192 then
+				i = i + 1
+			else
+				break
+			end
+		end
+		partCount = partCount + 1
+		parts[partCount] = input:sub(start, i - 1)
 	end
-	return output
+	return table.concat(parts)
 end
 
 local function abbreviateName(text)
@@ -131,6 +130,30 @@ local function GetShowHots()
 		return LHC.ALL_HEALS end 
 end
 
+local playerGUID
+local healSnapshots = {}
+local healSnapshotTime
+local castTimeSmartState = {
+	previous_time = 0,
+	diff = 0,
+	last_castID = 0,
+}
+
+local function UpdatePlayerGUID()
+	playerGUID = UnitGUID("player")
+	if _ENV then
+		_ENV.playerGUID = playerGUID
+	end
+end
+
+local function InvalidateHealSnapshot(guid)
+	if guid then
+		healSnapshots[guid] = nil
+	else
+		wipe(healSnapshots)
+	end
+end
+
 local function GetBlizzardDirectHeals(unit)
 	if not oUF.TagsWithHealBlizzDirectHeals then
 		return 0, 0, 0
@@ -140,49 +163,92 @@ local function GetBlizzardDirectHeals(unit)
 	return totalHeal, myHeal, math.max(0, totalHeal - myHeal)
 end
 
-local function GetCorrectedTotalHeals(unit)
-	local guid = UnitGUID(unit)
-	local heal = LHC:GetHealAmount(guid, GetShowHots(), GetTime() + GetHealTimeFrame()) or 0
+local function BuildHealSnapshot(unit, guid)
+	local timeFrame = GetTime() + GetHealTimeFrame()
+	local mod = LHC:GetHealModifier(guid) or 1
+
+	local libTotal = LHC:GetHealAmount(guid, GetShowHots(), timeFrame) or 0
+	local libDirect = LHC:GetHealAmount(guid, LHC.DIRECT_HEALS, timeFrame) or 0
+	local libMy = LHC:GetHealAmount(guid, LHC.DIRECT_HEALS, timeFrame, playerGUID) or 0
+	local hot = LHC:GetHealAmount(guid, bit.bor(LHC.HOT_HEALS, LHC.CHANNEL_HEALS), timeFrame) or 0
+
 	local blizzTotal, blizzMy, blizzOther = GetBlizzardDirectHeals(unit)
-	local libMy = LHC:GetHealAmount(guid, LHC.DIRECT_HEALS, GetTime() + GetHealTimeFrame(), UnitGUID("player")) or 0
-	local totalLibDirect = LHC:GetHealAmount(guid, LHC.DIRECT_HEALS, GetTime() + GetHealTimeFrame()) or 0
 	local totalCorrected = blizzOther + libMy
-	if totalCorrected > totalLibDirect then
-		heal = heal + (totalCorrected - totalLibDirect)
+
+	local total = libTotal
+	if totalCorrected > libDirect then
+		total = total + (totalCorrected - libDirect)
 	end
-	if heal == 0 and blizzTotal > 0 then
-		heal = blizzTotal
+	if total == 0 and blizzTotal > 0 then
+		total = blizzTotal
 	end
-	return heal
+
+	local direct = libDirect
+	if totalCorrected > libDirect then
+		direct = libDirect + (totalCorrected - libDirect)
+	end
+
+	local my = libMy
+	if blizzMy > my then
+		my = blizzMy
+	end
+
+	local preHeal = 0
+	local healTime, healFrom, healAmount = LHC:GetNextHealAmount(guid, LHC.DIRECT_HEALS, timeFrame)
+	if healFrom and healFrom ~= playerGUID and libMy > 0 then
+		preHeal = healAmount or 0
+		healTime, healFrom, healAmount = LHC:GetNextHealAmount(guid, LHC.DIRECT_HEALS, timeFrame, healFrom)
+		if healFrom and healFrom ~= playerGUID then
+			preHeal = preHeal + (healAmount or 0)
+		end
+	end
+
+	local afterHeal
+	if preHeal > 0 then
+		afterHeal = math.max(0, blizzOther - preHeal)
+	else
+		afterHeal = blizzOther
+	end
+
+	return {
+		total = total,
+		direct = direct,
+		my = my,
+		pre = preHeal,
+		after = afterHeal,
+		hot = hot,
+		mod = mod,
+	}
+end
+
+local function GetHealSnapshot(unit)
+	local guid = UnitGUID(unit)
+	if not guid then return end
+
+	local now = GetTime()
+	if healSnapshotTime ~= now then
+		wipe(healSnapshots)
+		healSnapshotTime = now
+	end
+
+	local snap = healSnapshots[guid]
+	if snap then return snap end
+
+	snap = BuildHealSnapshot(unit, guid)
+	healSnapshots[guid] = snap
+	return snap
 end
 
 local function GetCorrectedTotalHealsWithModifier(unit)
-	local guid = UnitGUID(unit)
-	local mod = LHC:GetHealModifier(guid) or 1
-	local heal = GetCorrectedTotalHeals(unit)
-	return math.floor(heal * mod)
-end
-
-local function GetCorrectedDirectHeals(unit)
-	local guid = UnitGUID(unit)
-	local libHeal = LHC:GetHealAmount(guid, GetShowHots(), GetTime() + GetHealTimeFrame()) or 0
-	local heal = libHeal
-	-- Account for Blizzard incoming heals if they report more direct heals than LibHealComm
-	local blizzTotal, blizzMy, blizzOther = GetBlizzardDirectHeals(unit)
-	local libMy = LHC:GetHealAmount(guid, LHC.DIRECT_HEALS, GetTime() + GetHealTimeFrame(), UnitGUID("player")) or 0
-	local totalLibDirect = LHC:GetHealAmount(guid, LHC.DIRECT_HEALS, GetTime() + GetHealTimeFrame()) or 0
-	local totalCorrected = blizzOther + libMy
-	if totalCorrected > totalLibDirect then
-		heal = libHeal + (totalCorrected - totalLibDirect)
-	end
-	return heal
+	local snap = GetHealSnapshot(unit)
+	if not snap then return 0 end
+	return math.floor(snap.total * snap.mod)
 end
 
 local function GetCorrectedDirectHealsWithModifier(unit)
-	local guid = UnitGUID(unit)
-	local mod = LHC:GetHealModifier(guid) or 1
-	local heal = GetCorrectedDirectHeals(unit)
-	return math.floor(heal * mod)
+	local snap = GetHealSnapshot(unit)
+	if not snap then return 0 end
+	return math.floor(snap.direct * snap.mod)
 end
 
 local _ENV = {
@@ -231,31 +297,46 @@ local _ENV = {
 		return string.format("%ds", seconds)
 	end,
 	abbrevCache = setmetatable({}, {
-		__index = function(tbl, val)
-			val = string.gsub(val, "([^%s]+) ", abbreviateName)
-			rawset(tbl, val, val)
-			return val
+		__index = function(tbl, originalName)
+			local abbreviated = string.gsub(originalName, "([^%s]+) ", abbreviateName)
+			rawset(tbl, originalName, abbreviated)
+			return abbreviated
 	end}),
-	UnitCastingInfo = function(unit) return UnitCastingInfo(unit) end,
-	UnitChannelInfo = function(unit) return UnitChannelInfo(unit) end,
+	UnitCastingInfo = UnitCastingInfo,
+	UnitChannelInfo = UnitChannelInfo,
+	UnitHealth = UnitHealth,
+	UnitHealthMax = UnitHealthMax,
+	UnitGUID = UnitGUID,
+	UnitIsConnected = UnitIsConnected,
+	UnitIsGhost = UnitIsGhost,
+	GetTime = GetTime,
+	math = math,
+	format = format,
 	RARE = strmatch(GARRISON_MISSION_RARE,"%a*"),
 	GHOST = C_Spell.GetSpellName(8326),
 	LHC = LHC,
 	LT = LT,
-	GetHealTimeFrame = function() return GetHealTimeFrame() end,
-	GetShowHots = function() return GetShowHots() end,
+	GetHealTimeFrame = GetHealTimeFrame,
+	GetShowHots = GetShowHots,
+	GetHealSnapshot = GetHealSnapshot,
+	playerGUID = playerGUID,
+	castTimeSmartState = castTimeSmartState,
 	WA_Utf8Sub = WA_Utf8Sub,
 	lastChannelSpellName = function() return oUF.lastChannelSpellName end,
 	lastChannelEndTime = function() return oUF.lastChannelSpellEndTime end,
 	rangeCheck = function(unit) return RC:GetRange(unit) end,
 	blizzDirectHeals = function() return oUF.TagsWithHealBlizzDirectHeals end,
-	GetBlizzDirectHeals = function(unit) return GetBlizzardDirectHeals(unit) end,
-	GetCorrectedDirectHealsWithModifier = function(unit) return GetCorrectedDirectHealsWithModifier(unit) end,
-	GetCorrectedTotalHealsWithModifier = function(unit) return GetCorrectedTotalHealsWithModifier(unit) end,
+	GetCorrectedDirectHealsWithModifier = GetCorrectedDirectHealsWithModifier,
+	GetCorrectedTotalHealsWithModifier = GetCorrectedTotalHealsWithModifier,
 }
 _ENV.ColorGradient = function(...)
 	return _ENV._FRAME:ColorGradient(...)
 end
+_ENV.HEX_GREEN = format('|cff%02x%02x%02x', 0, 255, 0)
+_ENV.HEX_RESET = "|r"
+
+UpdatePlayerGUID()
+_ENV.playerGUID = playerGUID
 
 local _PROXY = setmetatable(_ENV, {__index = _G})
 
@@ -464,87 +545,34 @@ local tagStrings = {
 	end]],
 
 	["incownheal"] = [[function(unit)
-		local guid = UnitGUID(unit)
-		local mod = LHC:GetHealModifier(guid) or 1
-		local libMy = LHC:GetHealAmount(guid, LHC.DIRECT_HEALS, GetTime() + GetHealTimeFrame(), UnitGUID("player")) or 0
-		local myHeal = libMy
-		
-		local blizzTotal, blizzMy, blizzOther = GetBlizzDirectHeals(unit)
-		if blizzMy > myHeal then
-			myHeal = blizzMy
-		end
-		
-		if myHeal > 0 then
-			return math.floor(myHeal * mod)
+		local snap = GetHealSnapshot(unit)
+		if not snap then return end
+		if snap.my > 0 then
+			return math.floor(snap.my * snap.mod)
 		end
 	end]],
 
 	["incpreheal"] = [[function(unit)
-		local mod = LHC:GetHealModifier(UnitGUID(unit)) or 1
-		local preHeal = 0
-		local myHeal = LHC:GetHealAmount(UnitGUID(unit), LHC.DIRECT_HEALS, GetTime() + GetHealTimeFrame(), myGUID) or 0
-		-- We can only scout up to 2 direct heals that would land before ours but thats good enough for most cases
-		local healTime, healFrom, healAmount = LHC:GetNextHealAmount(UnitGUID(unit), LHC.DIRECT_HEALS, GetTime() + GetHealTimeFrame())
-		if healFrom and healFrom ~= UnitGUID("player") and myHeal > 0 then
-			preHeal = healAmount
-			healTime, healFrom, healAmount = LHC:GetNextHealAmount(UnitGUID(unit), LHC.DIRECT_HEALS, GetTime() + GetHealTimeFrame(), healFrom)
-			if healFrom and healFrom ~= UnitGUID("player") then
-				preHeal = preHeal + healAmount
-			end
-		end
-		if preHeal > 0 then
-			return math.floor(preHeal * mod)
+		local snap = GetHealSnapshot(unit)
+		if not snap then return end
+		if snap.pre > 0 then
+			return math.floor(snap.pre * snap.mod)
 		end
 	end]],
 
 	["incafterheal"] = [[function(unit)
-		local mod = LHC:GetHealModifier(UnitGUID(unit)) or 1
-		local guid = UnitGUID(unit)
-		local blizzTotal, blizzMy, blizzOther = GetBlizzDirectHeals(unit)
-		local preHeal = 0
-
-		local healTime, healFrom, healAmount =
-			LHC:GetNextHealAmount(guid, LHC.DIRECT_HEALS, GetTime() + GetHealTimeFrame())
-
-		if healFrom and healFrom ~= UnitGUID("player") then
-			preHeal = healAmount or 0
-
-			healTime, healFrom, healAmount =
-				LHC:GetNextHealAmount(guid, LHC.DIRECT_HEALS, GetTime() + GetHealTimeFrame(), healFrom)
-
-			if healFrom and healFrom ~= UnitGUID("player") then
-				preHeal = preHeal + (healAmount or 0)
-			end
-		end
-
-		local afterHeal
-
-		if preHeal > 0 then
-			-- LibHealComm knows about some other healer(s), so use
-			-- its ordering information and let Blizzard provide the total.
-			afterHeal = math.max(0, blizzOther - preHeal)
-		else
-			-- No other healer information from LibHealComm.
-			-- Assume all Blizzard "other" healing lands after ours.
-			afterHeal = blizzOther
-		end
-
-		if afterHeal > 0 then
-			return math.floor(afterHeal * mod)
+		local snap = GetHealSnapshot(unit)
+		if not snap then return end
+		if snap.after > 0 then
+			return math.floor(snap.after * snap.mod)
 		end
 	end]],
 
 	["hotheal"] = [[function(unit)
-		local guid = UnitGUID(unit)
-		local mod = LHC:GetHealModifier(guid) or 1
-		local heal = LHC:GetHealAmount(
-			guid,
-			bit.bor(LHC.HOT_HEALS, LHC.CHANNEL_HEALS),
-			GetTime() + GetHealTimeFrame()
-		) or 0
-
-		if heal > 0 then
-			return math.floor(heal * mod)
+		local snap = GetHealSnapshot(unit)
+		if not snap then return end
+		if snap.hot > 0 then
+			return math.floor(snap.hot * snap.mod)
 		end
 	end]],
 
@@ -627,7 +655,7 @@ local tagStrings = {
 				return math.ceil((hp / maxhp) * 100).."%"
 			end
 		end
-		return hp.."/"..maxhp.." "..math.ceil((UnitHealth(unit) / UnitHealthMax(unit)) * 100).."%"
+		return hp.."/"..maxhp.." "..math.ceil((hp / maxhp) * 100).."%"
 	end]],
 
 	["ssmarthealth"] = [[function(unit)
@@ -1308,11 +1336,8 @@ local tagStrings = {
 	end]],
 
 	["casttimesmart"] = [[function(unit)
-		previous_time = previous_time or 0
-		diff = diff or 0
-		last_castID = last_castID or 0
-		local name, _, _, _, endTime,_,castID = UnitCastingInfo(unit)
-		local new_time = 0
+		local name, _, _, _, endTime, _, castID = UnitCastingInfo(unit)
+		local new_time
 		if not name then
 			name, _, _, _, endTime = UnitChannelInfo(unit)
 			if name then
@@ -1323,23 +1348,27 @@ local tagStrings = {
 		else
 			new_time = (GetTime() - (endTime / 1000)) * -1
 		end
-		local result = math.floor(new_time * 10)/10
-		
-		if( castID ~= last_castID ) then
-			diff = 0
-		else
-			if new_time > previous_time then
-				diff = diff + (new_time - previous_time)
-			end
+		if not new_time then return end
+
+		if not UnitIsUnit(unit, "player") then
+			return math.floor(new_time * 10) / 10
 		end
 
-		if (math.floor(diff * 10)/10 > 0) then
-			local diff_result = math.floor(diff * 10)/10
-			result = "(+"..diff_result..") "..result
-		end 
-		
-		last_castID = castID
-		previous_time = new_time
+		local state = castTimeSmartState
+		local result = math.floor(new_time * 10) / 10
+
+		if castID ~= state.last_castID then
+			state.diff = 0
+		elseif new_time > state.previous_time then
+			state.diff = state.diff + (new_time - state.previous_time)
+		end
+
+		if math.floor(state.diff * 10) / 10 > 0 then
+			result = "(+" .. math.floor(state.diff * 10) / 10 .. ") " .. result
+		end
+
+		state.last_castID = castID
+		state.previous_time = new_time
 		return result
 	end]],
 
@@ -1534,11 +1563,14 @@ local tagEvents = {
 	["smartrace"]           = "UNIT_CLASSIFICATION_CHANGED",
 	["civilian"]            = "UNIT_LEVEL UNIT_FACTION PLAYER_LEVEL_UP",
 	["loyalty"]             = "UNIT_PET UNIT_PET_TRAINING_POINTS",
-	["healerhealth"]        = "PLAYER_UPDATE_RESTING UNIT_CONNECTION UNIT_HEAL_PREDICTION UNIT_HEALTH_FREQUENT UNIT_MAXHEALTH HealComm_HealStarted HealComm_HealUpdated HealComm_HealStopped HealComm_ModifierChanged HealComm_GUIDDisappeared",
-	["namehealerhealth"]    = "PLAYER_UPDATE_RESTING UNIT_CONNECTION UNIT_NAME_UPDATE UNIT_HEAL_PREDICTION UNIT_HEALTH_FREQUENT UNIT_MAXHEALTH HealComm_HealStarted HealComm_HealUpdated HealComm_HealStopped HealComm_ModifierChanged HealComm_GUIDDisappeared",
+	["healerhealth"]        = "UNIT_CONNECTION UNIT_HEAL_PREDICTION UNIT_HEALTH_FREQUENT UNIT_MAXHEALTH HealComm_HealStarted HealComm_HealUpdated HealComm_HealStopped HealComm_ModifierChanged HealComm_GUIDDisappeared",
+	["namehealerhealth"]    = "UNIT_CONNECTION UNIT_NAME_UPDATE UNIT_HEAL_PREDICTION UNIT_HEALTH_FREQUENT UNIT_MAXHEALTH HealComm_HealStarted HealComm_HealUpdated HealComm_HealStopped HealComm_ModifierChanged HealComm_GUIDDisappeared",
 	["healthcolor"]         = "UNIT_HEALTH_FREQUENT UNIT_MAXHEALTH",
 	["color"]               = "PLAYER_LOGIN", -- Dummy
 	["br"]                  = "PLAYER_LOGIN", -- Dummy
+	["castname"]            = "UNIT_SPELLCAST_START UNIT_SPELLCAST_DELAYED UNIT_SPELLCAST_STOP UNIT_SPELLCAST_FAILED UNIT_SPELLCAST_INTERRUPTED UNIT_SPELLCAST_CHANNEL_START UNIT_SPELLCAST_CHANNEL_UPDATE UNIT_SPELLCAST_CHANNEL_STOP",
+	["casttimesmart"]       = "UNIT_SPELLCAST_START UNIT_SPELLCAST_DELAYED UNIT_SPELLCAST_STOP UNIT_SPELLCAST_FAILED UNIT_SPELLCAST_INTERRUPTED UNIT_SPELLCAST_CHANNEL_START UNIT_SPELLCAST_CHANNEL_UPDATE UNIT_SPELLCAST_CHANNEL_STOP",
+	["enumtargeting"]       = "TARGETED_COUNT_CHANGED",
 	["xp"]                  = "PLAYER_XP_UPDATE UPDATE_EXHAUSTION UNIT_PET_EXPERIENCE",
 	["percxp"]              = "PLAYER_XP_UPDATE UNIT_PET_EXPERIENCE",
 	["rep"]                 = "UPDATE_FACTION",
@@ -1549,18 +1581,53 @@ local unitlessEvents = {
 	PARTY_LEADER_CHANGED = true,
 	PLAYER_LEVEL_UP = true,
 	PLAYER_TARGET_CHANGED = true,
-	PLAYER_UPDATE_RESTING = true,
 	PLAYER_LOGIN = true,
 	UPDATE_FACTION = true,
+	PLAYER_REGEN_DISABLED = true,
+	PLAYER_REGEN_ENABLED = true,
+	PLAYER_XP_UPDATE = true,
+	UPDATE_EXHAUSTION = true,
+	IGNORELIST_UPDATE = true,
+}
+
+local healCommMultiGUIDEvents = {
+	HealComm_HealStarted = true,
+	HealComm_HealUpdated = true,
+	HealComm_HealDelayed = true,
+	HealComm_HealStopped = true,
 }
 
 local events = {}
 
-local function TagEventHandler(self, event, unit, ...)
+local function TagEventHandler(self, event, unitOrGuids, ...)
 	local strings = events[event]
-	if(strings) then
-		for _, fs in next, strings do
-			if(fs:IsShown() and (unitlessEvents[event] or fs.parent.unit == unit or UnitGUID(fs.parent.unit) == unit or (fs.extraUnits and fs.extraUnits[unit]))) then
+	if(not strings) then return end
+
+	local guidSet = healCommMultiGUIDEvents[event] and unitOrGuids
+	local healCommGUID = (event == "HealComm_ModifierChanged" or event == "HealComm_GUIDDisappeared") and unitOrGuids
+
+	if event == "UNIT_HEAL_PREDICTION" and type(unitOrGuids) == "string" then
+		InvalidateHealSnapshot(UnitGUID(unitOrGuids))
+	elseif event == "PLAYER_LOGIN" then
+		UpdatePlayerGUID()
+	end
+
+	for _, fs in next, strings do
+		if fs:IsVisible() then
+			local shouldUpdate
+			if unitlessEvents[event] then
+				shouldUpdate = true
+			elseif guidSet then
+				local guid = UnitGUID(fs.parent.unit)
+				shouldUpdate = guid and guidSet[guid]
+			elseif healCommGUID then
+				local guid = UnitGUID(fs.parent.unit)
+				shouldUpdate = guid == healCommGUID
+			else
+				shouldUpdate = fs.parent.unit == unitOrGuids or (fs.extraUnits and fs.extraUnits[unitOrGuids])
+			end
+
+			if shouldUpdate then
 				fs:UpdateTag()
 			end
 		end
@@ -1597,6 +1664,20 @@ local function createOnUpdate(timer)
 	end
 end
 
+local function resumeOnUpdate(timer)
+	if onUpdates[timer] then
+		onUpdates[timer]:Show()
+	else
+		createOnUpdate(timer)
+	end
+end
+
+local function pauseOnUpdate(timer)
+	if onUpdates[timer] and eventlessUnits[timer] and #eventlessUnits[timer] == 0 then
+		onUpdates[timer]:Hide()
+	end
+end
+
 --[[ Tags: frame:UpdateTags()
 Used to update all tags on a frame.
 
@@ -1619,6 +1700,7 @@ onUpdateDelay["numtargeting"] = 0.5
 onUpdateDelay["cnumtargeting"] = 0.5
 onUpdateDelay["afktime"] = 0.5
 onUpdateDelay["casttime"] = 0.1
+onUpdateDelay["casttimesmart"] = 0.1
 
 
 local escapeSequences = {
@@ -1643,7 +1725,7 @@ end
 local function getTagFunc(tagstr)
 	local func = tagPool[tagstr]
 	if(not func) then
-		local format, numTags = tagstr:gsub('%%', '%%%%'):gsub(_PATTERN, '%%s')
+		local fmt, numTags = tagstr:gsub('%%', '%%%%'):gsub(_PATTERN, '%%s')
 		local args = {}
 
 		for bracket in tagstr:gmatch(_PATTERN) do
@@ -1725,19 +1807,16 @@ local function getTagFunc(tagstr)
 
 				_ENV._COLORS = parent.colors
 				_ENV._FRAME = parent
+				_ENV.playerGUID = playerGUID
 				for i, fnc in next, args do
 					tmp[i] = fnc(unit, realUnit, customArgs[self]) or ''
 				end
 
-				-- We do 1, numTags because tmp can hold several unneeded variables.
-				-- print(tagstr, "FORMAT:", format, type(format))
-				-- for i = 1, numTags do
-				-- 	print("ARG", i, tmp[i], type(tmp[i]))
-				-- end
-				
-				return self:SetFormattedText(format, unpack(tmp, 1, numTags))
-				
-			
+				local newText = string.format(fmt, unpack(tmp, 1, numTags))
+				if self.__tagLastText ~= newText then
+					self.__tagLastText = newText
+					self:SetFormattedText(fmt, unpack(tmp, 1, numTags))
+				end
 			end
 		end
 
@@ -1752,10 +1831,18 @@ local function getTagFunc(tagstr)
 end
 
 local function LibEventsWrapper(event, ...)
-	if strmatch(event, "^HealComm_Heal.*$") then -- HealComm special case
+	if healCommMultiGUIDEvents[event] then
+		local guids = {}
 		for i = 5, select("#", ...) do
-			TagEventHandler(eventFrame, event, select(i, ...))
+			local guid = select(i, ...)
+			guids[guid] = true
+			InvalidateHealSnapshot(guid)
 		end
+		TagEventHandler(eventFrame, event, guids)
+	elseif event == "HealComm_ModifierChanged" or event == "HealComm_GUIDDisappeared" then
+		local guid = ...
+		InvalidateHealSnapshot(guid)
+		TagEventHandler(eventFrame, event, guid)
 	else
 		TagEventHandler(eventFrame, event, ...)
 	end
@@ -1764,12 +1851,21 @@ end
 local function registerEvent(fontstr, event)
 	if(not events[event]) then events[event] = {} end
 
-	if not LibEvents[event] then
-		eventFrame:RegisterEvent(event)
-	else
-		LibEvents[event].RegisterCallback(eventFrame, event, LibEventsWrapper)
+	local data = events[event]
+	for i = 1, #data do
+		if data[i] == fontstr then
+			return
+		end
 	end
-	tinsert(events[event], fontstr)
+
+	if #data == 0 then
+		if not LibEvents[event] then
+			eventFrame:RegisterEvent(event)
+		else
+			LibEvents[event].RegisterCallback(eventFrame, event, LibEventsWrapper)
+		end
+	end
+	tinsert(data, fontstr)
 end
 
 local function registerEvents(fontstr, tagstr)
@@ -1786,8 +1882,8 @@ end
 
 local function unregisterEvents(fontstr)
 	for event, data in next, events do
-		for i, tagfsstr in next, data do
-			if(tagfsstr == fontstr) then
+		for i = #data, 1, -1 do
+			if(data[i] == fontstr) then
 				if(#data == 1) then
 					if LibEvents[event] then
 						LibEvents[event].UnregisterCallback(eventFrame, event)
@@ -1861,16 +1957,35 @@ local function Tag(self, fs, tagstr, ...)
 	end
 
 	local containsOnUpdate
+	local hasTagEvents
 	for tag in tagstr:gmatch(_PATTERN) do
 		tag = getTagName(tag)
-		if not tagEvents[tag] then
-			containsOnUpdate = onUpdateDelay[tag] or 0.15;
+		if tagEvents[tag] then
+			hasTagEvents = true
+		end
+		local delay = onUpdateDelay[tag]
+		if delay or not tagEvents[tag] then
+			containsOnUpdate = containsOnUpdate or delay or 0.15
 		end
 	end
 	-- end block
 
 	fs.parent = self
 	fs.UpdateTag = getTagFunc(tagstr)
+
+	if hasTagEvents then
+		registerEvents(fs, tagstr)
+
+		if(...) then
+			if(not fs.extraUnits) then
+				fs.extraUnits = {}
+			end
+
+			for index = 1, select('#', ...) do
+				fs.extraUnits[select(index, ...)] = true
+			end
+		end
+	end
 
 	if(self.__eventless or fs.frequentUpdates) or containsOnUpdate then -- ElvUI changed
 		local timer
@@ -1887,19 +2002,7 @@ local function Tag(self, fs, tagstr, ...)
 		if(not eventlessUnits[timer]) then eventlessUnits[timer] = {} end
 		tinsert(eventlessUnits[timer], fs)
 
-		createOnUpdate(timer)
-	else
-		registerEvents(fs, tagstr)
-
-		if(...) then
-			if(not fs.extraUnits) then
-				fs.extraUnits = {}
-			end
-
-			for index = 1, select('#', ...) do
-				fs.extraUnits[select(index, ...)] = true
-			end
-		end
+		resumeOnUpdate(timer)
 	end
 
 	taggedFS[fs] = tagstr
@@ -1916,15 +2019,17 @@ local function Untag(self, fs)
 	if(not fs or not self.__tags) then return end
 
 	unregisterEvents(fs)
-	for _, timers in next, eventlessUnits do
-		for i, fontstr in next, timers do
-			if(fs == fontstr) then
+	for timer, timers in next, eventlessUnits do
+		for i = #timers, 1, -1 do
+			if(fs == timers[i]) then
 				tremove(timers, i)
 			end
 		end
+		pauseOnUpdate(timer)
 	end
 
 	fs.UpdateTag = nil
+	fs.__tagLastText = nil
 
 	taggedFS[fs] = nil
 	self.__tags[fs] = nil
