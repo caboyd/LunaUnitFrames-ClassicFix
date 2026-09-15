@@ -430,6 +430,7 @@ local L = {
 ["IndexOfDispelDesc"] = "To display first found dispel leave blank or use 1, second found dispel use 2, 3, etc.",
 ["RaidManager"] = "Raid Manager",
 ["Testing"] = "Testing",
+["Test Auras"] = "Simulate changing auras on unit frames for performance testing. Requires unlocked frames.",
 }
 
 LUF.L = L

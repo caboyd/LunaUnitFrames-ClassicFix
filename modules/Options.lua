@@ -4878,7 +4878,7 @@ function LUF:CreateConfig()
 					},
 					auratest = {
 						name = L["Testing"] .. " " .. AURAS,
-						desc = PERFORMANCE_BUILD .. "\n" .. UNLOCK_FRAME,
+						desc = L["Test Auras"],
 						type = "toggle",
 						order = 91,
 						disabled = auraTestDisabled,
