@@ -587,6 +587,15 @@ local function UpdateAuras(self, event, unit)
 	if element.PreUpdate then element:PreUpdate(unit) end
 
 	local snap = AuraCache:Touch(unit)
+	if not AuraCache:IsReady(unit) and not element._waitingCache then
+		element._waitingCache = true
+		AuraCache:WhenReady(unit, function()
+			element._waitingCache = nil
+			if element.ForceUpdate then
+				element:ForceUpdate()
+			end
+		end)
+	end
 	local maxBuffs = element.maxBuffs or 32
 	local maxDebuffs = element.maxDebuffs or 40
 	local buffFilter = "HELPFUL"

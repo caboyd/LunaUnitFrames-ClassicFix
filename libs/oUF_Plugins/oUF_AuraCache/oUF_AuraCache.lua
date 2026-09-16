@@ -12,6 +12,7 @@ local snapshots = {}
 local dirtyGUIDs = {}
 local recordPool = {}
 local testOpts = {}
+local pendingReady = {}
 
 AuraCache.generation = 0
 AuraCache.canCure = {}
@@ -34,12 +35,14 @@ local function newSnapshot()
 		dispels = {},
 		helpfulCount = 0, harmfulCount = 0, dispelCount = 0,
 		status = "empty", -- "scanned" | "held" | "empty"
+		done = false, -- true after a trusted scan (or one deferred retry)
 		canAssist = false, isFriend = false, isManaUser = false,
 		isConnected = false, isVisible = false,
 	}
 end
 
 local EMPTY_SNAP = newSnapshot()
+EMPTY_SNAP.done = true
 
 local auraSource
 local LCD = LibStub and LibStub("LibClassicDurations", true)
@@ -87,6 +90,7 @@ end
 
 local function dropSnapshot(guid)
 	dirtyGUIDs[guid] = nil
+	pendingReady[guid] = nil
 	local snap = snapshots[guid]
 	if snap then
 		releaseSnapshotRecords(snap)
@@ -232,6 +236,7 @@ local function rebuildSnapshot(guid, unit)
 			snap.isVisible = false
 			snap.isConnected = true
 			snap.generation = AuraCache.generation
+			snap.done = true
 			return
 		end
 		-- No usable data yet (first Touch after reload, or was offline): scan
@@ -244,6 +249,7 @@ local function rebuildSnapshot(guid, unit)
 
 	if mode == "empty" then
 		snap.status = "empty"
+		snap.done = true
 		return
 	end
 
@@ -255,6 +261,10 @@ local function rebuildSnapshot(guid, unit)
 	scanAuras(snap, unit, src, "HARMFUL", true)
 	enrichSnapshotLCD(snap, unit)
 	snap.status = (mode == "hold") and "held" or "scanned"
+	-- Empty scans during reload are not trusted; WhenReady retries once.
+	if snap.helpfulCount > 0 or snap.harmfulCount > 0 then
+		snap.done = true
+	end
 end
 
 local function untrackToken(unit, guid)
@@ -469,6 +479,10 @@ function AuraCache:Touch(unit)
 	end
 	local snap = snapshots[guid]
 	local needsRebuild = not snap or dirtyGUIDs[guid] or snap.generation ~= AuraCache.generation
+	if snap and snap.generation ~= AuraCache.generation then
+		-- Generation bump (PEW / SPELLS_CHANGED) can recache blanks; allow one retry.
+		snap.done = false
+	end
 	if snap and not needsRebuild and not testing then
 		-- Visibility changes do not always fire an event, so poll on read.
 		local connected = not not UnitIsConnected(unit)
@@ -482,6 +496,52 @@ function AuraCache:Touch(unit)
 		rebuildSnapshot(guid, unit)
 	end
 	return snapshots[guid] or EMPTY_SNAP
+end
+
+function AuraCache:IsReady(unit)
+	if not unit then
+		return true
+	end
+	local guid = resolveTouchGUID(unit)
+	local snap = guid and snapshots[guid]
+	return snap and snap.done or false
+end
+
+-- First empty scan after reload is not trusted. Queue one callback; the
+-- timer marks the snapshot done so a still-empty unit does not retry forever.
+function AuraCache:WhenReady(unit, callback)
+	if not callback then
+		return
+	end
+	if self:IsReady(unit) then
+		callback()
+		return
+	end
+	local guid = resolveTouchGUID(unit)
+	if not guid then
+		callback()
+		return
+	end
+	local list = pendingReady[guid]
+	if not list then
+		list = {}
+		pendingReady[guid] = list
+		C_Timer.After(0.1, function()
+			local cbs = pendingReady[guid]
+			pendingReady[guid] = nil
+			local snap = snapshots[guid]
+			if snap then
+				snap.done = true
+			end
+			dirtyGUIDs[guid] = true
+			if cbs then
+				for i = 1, #cbs do
+					cbs[i]()
+				end
+			end
+		end)
+	end
+	list[#list + 1] = callback
 end
 
 function AuraCache:InvalidateAll()
