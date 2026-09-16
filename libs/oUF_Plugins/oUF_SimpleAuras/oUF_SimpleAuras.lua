@@ -414,6 +414,8 @@ local function updateIcon(element, unit, record, position, filter, isDebuff, ind
 		caster = record.caster
 		isStealable = record.isStealable
 		index = record.index or index
+	else
+		name, texture, count, debuffType, duration, expiration, caster, isStealable = ns.UnitAura(unit, index, filter)
 	end
 
 	if element.forceShow or element.forceCreate then
