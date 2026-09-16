@@ -567,9 +567,25 @@ function LUF:HideBlizzardFrames()
 	end
 
 	if (CompactRaidFrameManager) then
+		local function isLockedDown()
+			return InCombatLockdown() or LUF.InCombatLockdown
+		end
+
 		local function hideRaidFrames()
 			CompactRaidFrameContainer:UnregisterAllEvents()
-			CompactRaidFrameContainer:Hide()
+
+			-- Edit Mode routes CompactRaidFrameContainer:Hide() through protected HideBase().
+			-- Calling it from CompactRaidFrameManager_UpdateShown / OnShow in combat is blocked.
+			local function hideProtected()
+				CompactRaidFrameContainer:Hide()
+				RegisterStateDriver(CompactRaidFrameContainer, "visibility", "hide")
+			end
+
+			if isLockedDown() then
+				LUF:QueuePostCombatAction("hideRaidFrames", hideProtected)
+			else
+				hideProtected()
+			end
 		end
 
 		local function hideRaidManager()
@@ -577,6 +593,7 @@ function LUF:HideBlizzardFrames()
 
 			local function hideProtected()
 				CompactRaidFrameManager:Hide()
+				RegisterStateDriver(CompactRaidFrameManager, "visibility", "hide")
 
 				local shown = CompactRaidFrameManager_GetSetting("IsShown")
 				if shown and shown ~= "0" then
@@ -584,7 +601,7 @@ function LUF:HideBlizzardFrames()
 				end
 			end
 
-			if LUF.InCombatLockdown then
+			if isLockedDown() then
 				LUF:QueuePostCombatAction("hideRaidManager", hideProtected)
 			else
 				hideProtected()
