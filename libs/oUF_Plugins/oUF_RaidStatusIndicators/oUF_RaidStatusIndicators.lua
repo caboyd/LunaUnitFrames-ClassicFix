@@ -11,7 +11,7 @@ RaidStatusIndicators - A `table` containing frames with a .texture to show the s
 
 .texture     - The texture object (texture)
 .type        - Type of indicator (string)
-               "aggro", "legacythreat", "aura", "dispel", "missing", "ownaura"
+               "aggro", "aura", "dispel", "missing", "ownaura"
 .showTexture - Show corresponding icon on aura / dispel type instead of a color (boolean)
 .timer       - Show spinning timer (boolean)
 .value      .- Table containing string buff/debuff names. For missing its a table of tables of strings. Tables are logically linked "AND" and strings in the tables themselves are logically linked "OR"
@@ -39,8 +39,6 @@ RaidStatusIndicators - A `table` containing frames with a .texture to show the s
 local _, ns = ...
 local oUF = ns.oUF
 local AuraCache = ns.AuraCache
-
-local Vex = LibStub("LibVexation-1.0")
 
 local WHITE_TEX = [[Interface\Buttons\WHITE8X8]]
 
@@ -145,7 +143,7 @@ local function rebuildBuckets(element)
 	for i = #element._aura, 1, -1 do element._aura[i] = nil end
 	for _, indicator in pairs(element) do
 		if type(indicator) == "table" and indicator.type then
-			if indicator.type == "aggro" or indicator.type == "legacythreat" then
+			if indicator.type == "aggro" then
 				element._threat[#element._threat + 1] = indicator
 			elseif indicator.type == "aura" or indicator.type == "ownaura"
 				or indicator.type == "missing" or indicator.type == "dispel" then
@@ -364,33 +362,20 @@ end
 
 local function updateThreatIndicators(self, element, unit)
 	local hasAggro = UnitThreatSituation(UnitExists(unit) and unit or "player")
-	local legacyThreat = Vex and Vex:GetUnitAggroByUnitId(unit)
 
 	for _, indicator in ipairs(element._threat) do
-		if indicator.type == "aggro" then
-			if hasAggro and hasAggro > 0 then
-				setShown(indicator, true)
-				setCooldown(indicator, false)
-				setTexture(indicator, WHITE_TEX)
-				local color = hasAggro == 1 and oUF.colors.reaction[4] or oUF.colors.reaction[1]
-				setVertexColor(indicator, color[1], color[2], color[3])
-			else
-				setShown(indicator, false)
-			end
-		elseif indicator.type == "legacythreat" then
-			if legacyThreat then
-				setShown(indicator, true)
-				setCooldown(indicator, false)
-				setTexture(indicator, WHITE_TEX)
-				local color = oUF.colors.reaction[1]
-				setVertexColor(indicator, color[1], color[2], color[3])
-			else
-				setShown(indicator, false)
-			end
+		if hasAggro and hasAggro > 0 then
+			setShown(indicator, true)
+			setCooldown(indicator, false)
+			setTexture(indicator, WHITE_TEX)
+			local color = hasAggro == 1 and oUF.colors.reaction[4] or oUF.colors.reaction[1]
+			setVertexColor(indicator, color[1], color[2], color[3])
+		else
+			setShown(indicator, false)
 		end
 	end
 
-	return hasAggro, legacyThreat
+	return hasAggro
 end
 
 local function updateAuraIndicators(element, snap)
@@ -516,17 +501,6 @@ local function Enable(self)
 			end
 		end
 
-		local function LegacyThreatUpdate(_, guid)
-			if guid == UnitGUID(self.unit) then
-				runUpdate(self, self.unit, true, false)
-			end
-		end
-
-		if Vex then
-			Vex.RegisterCallback(element, "Vexation_gained", LegacyThreatUpdate)
-			Vex.RegisterCallback(element, "Vexation_lost", LegacyThreatUpdate)
-		end
-
 		self:RegisterEvent("UNIT_AURA", Path)
 		self:RegisterEvent("UNIT_CONNECTION", Path)
 		self:RegisterEvent("PARTY_MEMBER_ENABLE", Path)
@@ -544,11 +518,6 @@ end
 local function Disable(self)
 	local element = self.RaidStatusIndicators
 	if element then
-		if Vex then
-			Vex.UnregisterCallback(element, "Vexation_gained")
-			Vex.UnregisterCallback(element, "Vexation_lost")
-		end
-
 		self:UnregisterEvent("UNIT_AURA", Path)
 		self:UnregisterEvent("UNIT_CONNECTION", Path)
 		self:UnregisterEvent("PARTY_MEMBER_ENABLE", Path)

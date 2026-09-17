@@ -1003,7 +1003,6 @@ function LUF:CreateConfig()
 
 	local SQUARE_TYPE_VALUES = {
 		["aggro"] = L["Aggro"],
-		["legacythreat"] = L["Aggro"] .. " (" .. L["targettarget"] .. ")",
 		["aura"] = L["Buff/Debuff"],
 		["ownaura"] = L["Own buff/debuff"],
 		["dispel"] = DISPELS,
@@ -1012,6 +1011,23 @@ function LUF:CreateConfig()
 
 	local function squareConfig(info)
 		return LUF.db.profile.units[info[#info-3]].squares[info[#info-1]]
+	end
+
+	local function squareTypeGet(info)
+		local square = squareConfig(info)
+		if not SQUARE_TYPE_VALUES[square.type] then
+			square.type = LUF.defaults.profile.units.player.squares[info[#info-1]].type
+		end
+		return square.type
+	end
+
+	local function squareHidesValueTexture(info)
+		return squareTypeGet(info) == "aggro"
+	end
+
+	local function squareHidesTimer(info)
+		local squareType = squareTypeGet(info)
+		return squareType == "aggro" or squareType == "missing"
 	end
 
 	local function squareIsAuraMatchType(info)
@@ -3970,6 +3986,7 @@ function LUF:CreateConfig()
 							type = "select",
 							order = 3,
 							values = SQUARE_TYPE_VALUES,
+							get = squareTypeGet,
 							set = function(info, value) set(info,value) LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].value = nil ACR:NotifyChange("LunaUnitFrames") end,
 						},
 						matchMode = {
@@ -3988,7 +4005,7 @@ function LUF:CreateConfig()
 							desc = squareValueDesc,
 							type = "input",
 							order = 4,
-							hidden = function(info) return LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "aggro" or LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "legacythreat" end,
+							hidden = squareHidesValueTexture,
 							validate = validateMissingBuffInput,
 						},
 						timer = {
@@ -3996,14 +4013,14 @@ function LUF:CreateConfig()
 							desc = string.format(L["Enable or disable the %s."],L["Timer"]),
 							type = "toggle",
 							order = 6,
-							hidden = function(info) return LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "aggro" or LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "legacythreat" or LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "missing" end,
+							hidden = squareHidesTimer,
 						},
 						texture = {
 							name = L["Texture"],
 							desc = L["Show the spell texture instead of its type color."],
 							type = "toggle",
 							order = 7,
-							hidden = function(info) return LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "aggro" or LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "legacythreat" end,
+							hidden = squareHidesValueTexture,
 						},
 						x = {
 							name = L["X Position"],
@@ -4052,6 +4069,7 @@ function LUF:CreateConfig()
 							type = "select",
 							order = 3,
 							values = SQUARE_TYPE_VALUES,
+							get = squareTypeGet,
 							set = function(info, value) set(info,value) LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].value = nil ACR:NotifyChange("LunaUnitFrames") end,
 						},
 						matchMode = {
@@ -4070,7 +4088,7 @@ function LUF:CreateConfig()
 							desc = squareValueDesc,
 							type = "input",
 							order = 4,
-							hidden = function(info) return LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "aggro" or LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "legacythreat" end,
+							hidden = squareHidesValueTexture,
 							validate = validateMissingBuffInput,
 						},
 						timer = {
@@ -4078,14 +4096,14 @@ function LUF:CreateConfig()
 							desc = string.format(L["Enable or disable the %s."],L["Timer"]),
 							type = "toggle",
 							order = 6,
-							hidden = function(info) return LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "aggro" or LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "legacythreat" or LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "missing" end,
+							hidden = squareHidesTimer,
 						},
 						texture = {
 							name = L["Texture"],
 							desc = L["Show the spell texture instead of its type color."],
 							type = "toggle",
 							order = 7,
-							hidden = function(info) return LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "aggro" or LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "legacythreat" end,
+							hidden = squareHidesValueTexture,
 						},
 						x = {
 							name = L["X Position"],
@@ -4134,6 +4152,7 @@ function LUF:CreateConfig()
 							type = "select",
 							order = 3,
 							values = SQUARE_TYPE_VALUES,
+							get = squareTypeGet,
 							set = function(info, value) set(info,value) LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].value = nil ACR:NotifyChange("LunaUnitFrames") end,
 						},
 						matchMode = {
@@ -4152,7 +4171,7 @@ function LUF:CreateConfig()
 							desc = squareValueDesc,
 							type = "input",
 							order = 4,
-							hidden = function(info) return LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "aggro" or LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "legacythreat" end,
+							hidden = squareHidesValueTexture,
 							validate = validateMissingBuffInput,
 						},
 						timer = {
@@ -4160,14 +4179,14 @@ function LUF:CreateConfig()
 							desc = string.format(L["Enable or disable the %s."],L["Timer"]),
 							type = "toggle",
 							order = 6,
-							hidden = function(info) return LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "aggro" or LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "legacythreat" or LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "missing" end,
+							hidden = squareHidesTimer,
 						},
 						texture = {
 							name = L["Texture"],
 							desc = L["Show the spell texture instead of its type color."],
 							type = "toggle",
 							order = 7,
-							hidden = function(info) return LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "aggro" or LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "legacythreat" end,
+							hidden = squareHidesValueTexture,
 						},
 						x = {
 							name = L["X Position"],
@@ -4216,6 +4235,7 @@ function LUF:CreateConfig()
 							type = "select",
 							order = 3,
 							values = SQUARE_TYPE_VALUES,
+							get = squareTypeGet,
 							set = function(info, value) set(info,value) LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].value = nil ACR:NotifyChange("LunaUnitFrames") end,
 						},
 						matchMode = {
@@ -4234,7 +4254,7 @@ function LUF:CreateConfig()
 							desc = squareValueDesc,
 							type = "input",
 							order = 4,
-							hidden = function(info) return LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "aggro" or LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "legacythreat" end,
+							hidden = squareHidesValueTexture,
 							validate = validateMissingBuffInput,
 						},
 						timer = {
@@ -4242,14 +4262,14 @@ function LUF:CreateConfig()
 							desc = string.format(L["Enable or disable the %s."],L["Timer"]),
 							type = "toggle",
 							order = 6,
-							hidden = function(info) return LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "aggro" or LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "legacythreat" or LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "missing" end,
+							hidden = squareHidesTimer,
 						},
 						texture = {
 							name = L["Texture"],
 							desc = L["Show the spell texture instead of its type color."],
 							type = "toggle",
 							order = 7,
-							hidden = function(info) return LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "aggro" or LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "legacythreat" end,
+							hidden = squareHidesValueTexture,
 						},
 						x = {
 							name = L["X Position"],
@@ -4298,6 +4318,7 @@ function LUF:CreateConfig()
 							type = "select",
 							order = 3,
 							values = SQUARE_TYPE_VALUES,
+							get = squareTypeGet,
 							set = function(info, value) set(info,value) LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].value = nil ACR:NotifyChange("LunaUnitFrames") end,
 						},
 						matchMode = {
@@ -4316,7 +4337,7 @@ function LUF:CreateConfig()
 							desc = squareValueDesc,
 							type = "input",
 							order = 4,
-							hidden = function(info) return LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "aggro" or LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "legacythreat" end,
+							hidden = squareHidesValueTexture,
 							validate = validateMissingBuffInput,
 						},
 						timer = {
@@ -4324,14 +4345,14 @@ function LUF:CreateConfig()
 							desc = string.format(L["Enable or disable the %s."],L["Timer"]),
 							type = "toggle",
 							order = 6,
-							hidden = function(info) return LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "aggro" or LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "legacythreat" or LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "missing" end,
+							hidden = squareHidesTimer,
 						},
 						texture = {
 							name = L["Texture"],
 							desc = L["Show the spell texture instead of its type color."],
 							type = "toggle",
 							order = 7,
-							hidden = function(info) return LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "aggro" or LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "legacythreat" end,
+							hidden = squareHidesValueTexture,
 						},
 						x = {
 							name = L["X Position"],
@@ -4380,6 +4401,7 @@ function LUF:CreateConfig()
 							type = "select",
 							order = 3,
 							values = SQUARE_TYPE_VALUES,
+							get = squareTypeGet,
 							set = function(info, value) set(info,value) LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].value = nil ACR:NotifyChange("LunaUnitFrames") end,
 						},
 						matchMode = {
@@ -4398,7 +4420,7 @@ function LUF:CreateConfig()
 							desc = squareValueDesc,
 							type = "input",
 							order = 4,
-							hidden = function(info) return LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "aggro" or LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "legacythreat" end,
+							hidden = squareHidesValueTexture,
 							validate = validateMissingBuffInput,
 						},
 						timer = {
@@ -4406,14 +4428,14 @@ function LUF:CreateConfig()
 							desc = string.format(L["Enable or disable the %s."],L["Timer"]),
 							type = "toggle",
 							order = 6,
-							hidden = function(info) return LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "aggro" or LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "legacythreat" or LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "missing" end,
+							hidden = squareHidesTimer,
 						},
 						texture = {
 							name = L["Texture"],
 							desc = L["Show the spell texture instead of its type color."],
 							type = "toggle",
 							order = 7,
-							hidden = function(info) return LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "aggro" or LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "legacythreat" end,
+							hidden = squareHidesValueTexture,
 						},
 						x = {
 							name = L["X Position"],
@@ -4462,6 +4484,7 @@ function LUF:CreateConfig()
 							type = "select",
 							order = 3,
 							values = SQUARE_TYPE_VALUES,
+							get = squareTypeGet,
 							set = function(info, value) set(info,value) LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].value = nil ACR:NotifyChange("LunaUnitFrames") end,
 						},
 						matchMode = {
@@ -4480,7 +4503,7 @@ function LUF:CreateConfig()
 							desc = squareValueDesc,
 							type = "input",
 							order = 4,
-							hidden = function(info) return LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "aggro" or LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "legacythreat" end,
+							hidden = squareHidesValueTexture,
 							validate = validateMissingBuffInput,
 						},
 						timer = {
@@ -4488,14 +4511,14 @@ function LUF:CreateConfig()
 							desc = string.format(L["Enable or disable the %s."],L["Timer"]),
 							type = "toggle",
 							order = 6,
-							hidden = function(info) return LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "aggro" or LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "legacythreat" or LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "missing" end,
+							hidden = squareHidesTimer,
 						},
 						texture = {
 							name = L["Texture"],
 							desc = L["Show the spell texture instead of its type color."],
 							type = "toggle",
 							order = 7,
-							hidden = function(info) return LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "aggro" or LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "legacythreat" end,
+							hidden = squareHidesValueTexture,
 						},
 						x = {
 							name = L["X Position"],
@@ -4544,6 +4567,7 @@ function LUF:CreateConfig()
 							type = "select",
 							order = 3,
 							values = SQUARE_TYPE_VALUES,
+							get = squareTypeGet,
 							set = function(info, value) set(info,value) LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].value = nil ACR:NotifyChange("LunaUnitFrames") end,
 						},
 						matchMode = {
@@ -4562,7 +4586,7 @@ function LUF:CreateConfig()
 							desc = squareValueDesc,
 							type = "input",
 							order = 4,
-							hidden = function(info) return LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "aggro" or LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "legacythreat" end,
+							hidden = squareHidesValueTexture,
 							validate = validateMissingBuffInput,
 						},
 						timer = {
@@ -4570,14 +4594,14 @@ function LUF:CreateConfig()
 							desc = string.format(L["Enable or disable the %s."],L["Timer"]),
 							type = "toggle",
 							order = 6,
-							hidden = function(info) return LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "aggro" or LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "legacythreat" or LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "missing" end,
+							hidden = squareHidesTimer,
 						},
 						texture = {
 							name = L["Texture"],
 							desc = L["Show the spell texture instead of its type color."],
 							type = "toggle",
 							order = 7,
-							hidden = function(info) return LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "aggro" or LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "legacythreat" end,
+							hidden = squareHidesValueTexture,
 						},
 						x = {
 							name = L["X Position"],
@@ -4626,6 +4650,7 @@ function LUF:CreateConfig()
 							type = "select",
 							order = 3,
 							values = SQUARE_TYPE_VALUES,
+							get = squareTypeGet,
 							set = function(info, value) set(info,value) LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].value = nil ACR:NotifyChange("LunaUnitFrames") end,
 						},
 						matchMode = {
@@ -4644,7 +4669,7 @@ function LUF:CreateConfig()
 							desc = squareValueDesc,
 							type = "input",
 							order = 4,
-							hidden = function(info) return LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "aggro" or LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "legacythreat" end,
+							hidden = squareHidesValueTexture,
 							validate = validateMissingBuffInput,
 						},
 						timer = {
@@ -4652,14 +4677,14 @@ function LUF:CreateConfig()
 							desc = string.format(L["Enable or disable the %s."],L["Timer"]),
 							type = "toggle",
 							order = 6,
-							hidden = function(info) return LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "aggro" or LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "legacythreat" or LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "missing" end,
+							hidden = squareHidesTimer,
 						},
 						texture = {
 							name = L["Texture"],
 							desc = L["Show the spell texture instead of its type color."],
 							type = "toggle",
 							order = 7,
-							hidden = function(info) return LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "aggro" or LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "legacythreat" end,
+							hidden = squareHidesValueTexture,
 						},
 						x = {
 							name = L["X Position"],
