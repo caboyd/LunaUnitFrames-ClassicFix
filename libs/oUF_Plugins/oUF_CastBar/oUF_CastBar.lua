@@ -89,6 +89,7 @@ A default texture will be applied to the StatusBar and Texture widgets if they d
 
 local _, ns = ...
 local oUF = ns.oUF
+local AuraCache = ns.AuraCache
 local uninterruptibleList = oUF.uninterruptibleList
 local playerSilences = oUF.playerSilences
 local castImmunityBuffs = oUF.castImmunityBuffs
@@ -101,7 +102,6 @@ local INTERRUPTED = _G.INTERRUPTED or 'Interrupted'
 local UnitIsPlayer = _G.UnitIsPlayer
 local UnitCastingInfo = _G.UnitCastingInfo
 local UnitChannelInfo = _G.UnitChannelInfo
-local UnitAura = _G.UnitAura
 local UnitGUID = _G.UnitGUID
 
 local UNIT_SPELLCAST_SENT = function (self, event, unit, target, castID, spellID)
@@ -245,9 +245,11 @@ local function CheckCastModifiers(self, unit, ranFromUnitAuraEvent)
 
     if cast.notInterruptible then return end -- no point checking further if its found above
 
+    local snap = AuraCache:Touch(unit)
+
     -- Check for any temp BUFF immunities
-    for i = 1, 40 do
-        local _, _, _, _, _, _, _, _, _, spellID = UnitAura(unit, i, "HELPFUL")
+    for i = 1, snap.helpfulCount do
+        local spellID = snap.helpful[i].spellID
         if not spellID then break end
         if castImmunityBuffs[spellID] then
             cast.notInterruptible = true
@@ -260,8 +262,8 @@ local function CheckCastModifiers(self, unit, ranFromUnitAuraEvent)
     -- Check for debuff silences. If mob is still casting while silenced he's most likely interrupt immune.
     -- Previously we also checked for SPELL_IMMUNE event on interrupts, but this no longer works.
     if not cast.unitIsPlayer then
-        for i = 1, 40 do
-            local _, _, _, _, _, _, _, _, _, spellID = UnitAura(unit, i, "HARMFUL")
+        for i = 1, snap.harmfulCount do
+            local spellID = snap.harmful[i].spellID
             if not spellID then break end
 
             if playerSilences[spellID] then

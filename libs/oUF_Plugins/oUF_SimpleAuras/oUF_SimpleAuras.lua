@@ -207,9 +207,8 @@ local function setCooldown(button, element, shown, start, duration)
 		button._cdStart = start
 		button._cdDur = duration
 		button.cd:SetCooldown(start, duration)
-		if not element.disableBCC and not (_G.OmniCC and not element.disableOCC) then
-			button._bccSize = nil
-		end
+		-- Allow a next-frame FontString lookup if numbers weren't created yet.
+		button._bccRetry = nil
 	end
 end
 
@@ -267,17 +266,18 @@ local function setButtonSize(button, size)
 end
 
 local function CheckBlizzardCooldownTextOverflow(element, button)
-	--OmniCC always prevents blizzard timers so we dont need to do
+	-- OmniCC always prevents blizzard timers so we dont need to do
 	-- this if it's installed and not disabled
-    if element.disableBCC or (_G.OmniCC and not element.disableOCC) then return end
+	if element.disableBCC or (_G.OmniCC and not element.disableOCC) then return end
+	if not button._cdShown then return end
 
 	local button_width = button._size or button:GetWidth()
 	if button._bccSize == button_width then return end
-	button._bccSize = button_width
 
 	if not button.cdFontString then
-		-- Cache the cooldown text font string
-		for _, region in ipairs({ button.cd:GetRegions() }) do
+		local regions = { button.cd:GetRegions() }
+		for i = 1, #regions do
+			local region = regions[i]
 			if region:GetObjectType() == "FontString" then
 				button.cdFontString = region
 				break
@@ -286,23 +286,26 @@ local function CheckBlizzardCooldownTextOverflow(element, button)
 	end
 
 	local fs = button.cdFontString
+	if not fs then
+		-- Cooldown numbers often don't exist until the frame after SetCooldown.
+		if not button._bccRetry then
+			button._bccRetry = true
+			C_Timer.After(0, function()
+				CheckBlizzardCooldownTextOverflow(element, button)
+			end)
+		end
+		return
+	end
+	button._bccRetry = nil
+	button._bccSize = button_width
 
-	local _, oldFontSize, _ = fs:GetFont()
+	local fontName, oldFontSize = fs:GetFont()
 	local fontSize = math.max(8, button_width^0.95 * 0.42)
-
-	if(oldFontSize ~= fontSize) then
-		--only update when font size changed
-		local fontName = fs:GetFont()
-		fs:SetFont(fontName, fontSize, 'OUTLINE')
+	if oldFontSize ~= fontSize then
+		fs:SetFont(fontName, fontSize, "OUTLINE")
 	end
 
-	local text_width = fs:GetStringWidth()
-
-    if (button_width < 18.5)  then
-        button.cd:SetHideCountdownNumbers(true)
-    else
-        button.cd:SetHideCountdownNumbers(false)
-    end
+	button.cd:SetHideCountdownNumbers(button_width < 18.5)
 end
 
 local function UpdateTooltip(self)
@@ -414,6 +417,8 @@ local function updateIcon(element, unit, record, position, filter, isDebuff, ind
 		caster = record.caster
 		isStealable = record.isStealable
 		index = record.index or index
+	else
+		name, texture, count, debuffType, duration, expiration, caster, isStealable = ns.UnitAura(unit, index, filter)
 	end
 
 	if element.forceShow or element.forceCreate then
@@ -441,6 +446,12 @@ local function updateIcon(element, unit, record, position, filter, isDebuff, ind
 	if not button then return end
 
 	local isPlayer = caster == "player" or caster == "vehicle"
+	-- Size/font can change from options without the aura itself changing.
+	local newSize = getIconSize(element, isDebuff, isPlayer)
+	local sizeChanged = button._size ~= newSize
+	setCount(button, count or 0, element.buffcountfontsize or 10)
+	setButtonSize(button, newSize)
+
 	if button._spellID == (record and record.spellID)
 		and button._countVal == (count or 0)
 		and button._exp == expiration
@@ -450,6 +461,9 @@ local function updateIcon(element, unit, record, position, filter, isDebuff, ind
 		and button._auraIndex == index
 		and button._shown
 	then
+		if sizeChanged then
+			CheckBlizzardCooldownTextOverflow(element, button)
+		end
 		return
 	end
 
@@ -485,9 +499,6 @@ local function updateIcon(element, unit, record, position, filter, isDebuff, ind
 		setIconTexture(button, texture)
 	end
 
-	setCount(button, count or 0, element.buffcountfontsize or 10)
-	setButtonSize(button, getIconSize(element, isDebuff, isPlayer))
-
 	if button:GetID() ~= index then
 		button:SetID(index)
 	end
@@ -496,7 +507,9 @@ local function updateIcon(element, unit, record, position, filter, isDebuff, ind
 	if element.PostUpdateIcon then
 		element:PostUpdateIcon(unit, button, index, position, duration, expiration, debuffType, isStealable)
 	end
-	CheckBlizzardCooldownTextOverflow(element, button)
+	if showTimer then
+		CheckBlizzardCooldownTextOverflow(element, button)
+	end
 end
 
 local function hideTrailingAuras(auraFrame, currentSlot)
@@ -529,9 +542,7 @@ local function passesSpellFilter(spellFilter, spellMode, matchBy, spellID, lower
 	return true
 end
 
-local function updateAurasFromSnapshot(element, unit, snap, isDebuff, filterMode, maxAuras, filter, currentSlot)
-	local list = isDebuff and snap.harmful or snap.helpful
-	local count = isDebuff and snap.harmfulCount or snap.helpfulCount
+local function updateAurasFromSnapshot(element, unit, list, count, isDebuff, filterMode, maxAuras, filter, currentSlot)
 	local spellFilter = isDebuff and element.debuffSpellFilter or element.buffSpellFilter
 	local spellMode = isDebuff and element.debuffSpellFilterMode or element.buffSpellFilterMode
 	local matchBy = isDebuff and element.debuffSpellFilterMatch or element.buffSpellFilterMatch
@@ -551,31 +562,6 @@ local function updateAurasFromSnapshot(element, unit, snap, isDebuff, filterMode
 	return currentSlot
 end
 
--- HELPFUL|RAID membership is a Blizzard-side filter not derivable from cached records.
-local function updateAurasFromRaidFilter(element, unit, isDebuff, filterMode, maxAuras, filter, currentSlot)
-	local raidFilter = (isDebuff and "HARMFUL" or "HELPFUL") .. "|RAID"
-	local spellFilter = isDebuff and element.debuffSpellFilter or element.buffSpellFilter
-	local spellMode = isDebuff and element.debuffSpellFilterMode or element.buffSpellFilterMode
-	local matchBy = isDebuff and element.debuffSpellFilterMatch or element.buffSpellFilterMatch
-	for i = 1, 40 do
-		if currentSlot > maxAuras then
-			break
-		end
-		local name, _, _, _, _, _, caster, _, _, spellID = ns.UnitAura(unit, i, raidFilter)
-		if name or element.forceShow then
-			if (filterMode ~= 2 or caster == "player")
-				and (element.forceShow or passesSpellFilter(spellFilter, spellMode, matchBy, spellID, name and strlower(name)))
-			then
-				updateIcon(element, unit, nil, currentSlot, filter, isDebuff, i)
-				currentSlot = currentSlot + 1
-			end
-		else
-			break
-		end
-	end
-	return currentSlot
-end
-
 local function UpdateAuras(self, event, unit)
 	if self.unit ~= unit then return end
 
@@ -584,7 +570,7 @@ local function UpdateAuras(self, event, unit)
 
 	if element.PreUpdate then element:PreUpdate(unit) end
 
-	local snap = AuraCache:Touch(unit)
+	local snap = AuraCache:Touch(unit, { classFilter = element.buffFilter == 3 })
 	local maxBuffs = element.maxBuffs or 32
 	local maxDebuffs = element.maxDebuffs or 40
 	local buffFilter = "HELPFUL"
@@ -593,16 +579,16 @@ local function UpdateAuras(self, event, unit)
 	local currentSlot = 1
 
 	if element.buffs then
-		-- Offline UnitAura still returns paladin/class auras; skip that scan.
-		if element.buffFilter == 3 and snap.status ~= "empty" and (UnitCanAssist("player", unit) or not UnitIsVisible(unit)) then
-			currentSlot = updateAurasFromRaidFilter(element, unit, false, element.buffFilter, maxBuffs, buffFilter .. "|RAID", currentSlot)
-		elseif element.forceShow then
+		if element.forceShow then
 			for i = 1, maxBuffs do
 				updateIcon(element, unit, nil, currentSlot, buffFilter, false, i)
 				currentSlot = currentSlot + 1
 			end
+		elseif element.buffFilter == 3 and snap.status ~= "empty"
+			and (snap.canAssist or not snap.isVisible) then
+			currentSlot = updateAurasFromSnapshot(element, unit, snap.classHelpful, snap.classHelpfulCount or 0, false, 3, maxBuffs, buffFilter, currentSlot)
 		else
-			currentSlot = updateAurasFromSnapshot(element, unit, snap, false, element.buffFilter, maxBuffs, buffFilter, currentSlot)
+			currentSlot = updateAurasFromSnapshot(element, unit, snap.helpful, snap.helpfulCount, false, element.buffFilter, maxBuffs, buffFilter, currentSlot)
 		end
 	end
 
@@ -623,15 +609,15 @@ local function UpdateAuras(self, event, unit)
 	local debuffs = element.debuffFrame
 	currentSlot = 1
 	if element.debuffs then
-		if element.debuffFilter == 3 then
-			currentSlot = updateAurasFromRaidFilter(element, unit, true, element.debuffFilter, maxDebuffs, debuffFilter .. "|RAID", currentSlot)
-		elseif element.forceShow then
+		if element.forceShow then
 			for i = 1, maxDebuffs do
 				updateIcon(element, unit, nil, currentSlot, debuffFilter, true, i)
 				currentSlot = currentSlot + 1
 			end
+		elseif element.debuffFilter == 3 then
+			currentSlot = updateAurasFromSnapshot(element, unit, snap.dispels, snap.dispelCount or 0, true, 3, maxDebuffs, debuffFilter, currentSlot)
 		else
-			currentSlot = updateAurasFromSnapshot(element, unit, snap, true, element.debuffFilter, maxDebuffs, debuffFilter, currentSlot)
+			currentSlot = updateAurasFromSnapshot(element, unit, snap.harmful, snap.harmfulCount, true, element.debuffFilter, maxDebuffs, debuffFilter, currentSlot)
 		end
 	end
 
@@ -703,7 +689,7 @@ local function Update(self, event, unit)
 				button = buffs[i]
 				button:EnableMouse(true)
 				buttonSize = button:GetWidth()
-				if not button:IsVisible() then break end
+				if not button._shown then break end
 				button:ClearAllPoints()
 				if i == 1 then
 					button:SetPoint("TOPLEFT", buffs, "TOPLEFT")
@@ -729,7 +715,7 @@ local function Update(self, event, unit)
 			for i=1, buffs.createdIcons do
 				button = buffs[i]
 				button:EnableMouse(true)
-				if not button:IsVisible() then break end
+				if not button._shown then break end
 				buttonSize = button:GetWidth()
 				button:ClearAllPoints()
 				if i == 1 then
@@ -756,7 +742,7 @@ local function Update(self, event, unit)
 			for i=1, buffs.createdIcons do
 				button = buffs[i]
 				button:EnableMouse(true)
-				if not button:IsVisible() then break end
+				if not button._shown then break end
 				buttonSize = button:GetWidth()
 				button:ClearAllPoints()
 				if i == 1 then
@@ -783,7 +769,7 @@ local function Update(self, event, unit)
 			for i=1, buffs.createdIcons do
 				button = buffs[i]
 				button:EnableMouse(true)
-				if not button:IsVisible() then break end
+				if not button._shown then break end
 				buttonSize = button:GetWidth()
 				button:ClearAllPoints()
 				if i == 1 then
@@ -810,7 +796,7 @@ local function Update(self, event, unit)
 			for i=1, buffs.createdIcons do
 				button = buffs[i]
 				button:EnableMouse(false)
-				if not button:IsVisible() then break end
+				if not button._shown then break end
 				button:ClearAllPoints()
 				if i == 1 then
 					button:SetPoint("TOPLEFT", element, "TOPLEFT", 1, -1 + (element.buffOffset or 0))
@@ -821,7 +807,7 @@ local function Update(self, event, unit)
 					button:SetPoint("LEFT", firstButton, "RIGHT", element.spacing, 0)
 					firstButton = button
 				else
-					button:Hide()
+					setShown(button, false)
 				end
 			end
 		else
@@ -829,7 +815,7 @@ local function Update(self, event, unit)
 			for i=1, buffs.createdIcons do
 				button = buffs[i]
 				button:EnableMouse(false)
-				if not button:IsVisible() then break end
+				if not button._shown then break end
 				button:ClearAllPoints()
 				if i == 1 then
 					button:SetPoint("BOTTOMLEFT", element, "LEFT", 1, (element.buffOffset or 0))
@@ -840,7 +826,7 @@ local function Update(self, event, unit)
 					button:SetPoint("BOTTOMLEFT", firstButton, "BOTTOMRIGHT", element.spacing, 0)
 					firstButton = button
 				else
-					button:Hide()
+					setShown(button, false)
 				end
 			end
 		end
@@ -863,7 +849,7 @@ local function Update(self, event, unit)
 			for i=1, debuffs.createdIcons do
 				button = debuffs[i]
 				button:EnableMouse(true)
-				if not button:IsVisible() then break end
+				if not button._shown then break end
 				buttonSize = button:GetWidth()
 				button:ClearAllPoints()
 				if i == 1 then
@@ -890,7 +876,7 @@ local function Update(self, event, unit)
 			for i=1, debuffs.createdIcons do
 				button = debuffs[i]
 				button:EnableMouse(true)
-				if not button:IsVisible() then break end
+				if not button._shown then break end
 				buttonSize = button:GetWidth()
 				button:ClearAllPoints()
 				if i == 1 then
@@ -917,7 +903,7 @@ local function Update(self, event, unit)
 			for i=1, debuffs.createdIcons do
 				button = debuffs[i]
 				button:EnableMouse(true)
-				if not button:IsVisible() then break end
+				if not button._shown then break end
 				buttonSize = button:GetWidth()
 				button:ClearAllPoints()
 				if i == 1 then
@@ -944,7 +930,7 @@ local function Update(self, event, unit)
 			for i=1, debuffs.createdIcons do
 				button = debuffs[i]
 				button:EnableMouse(true)
-				if not button:IsVisible() then break end
+				if not button._shown then break end
 				buttonSize = button:GetWidth()
 				button:ClearAllPoints()
 				if i == 1 then
@@ -970,7 +956,7 @@ local function Update(self, event, unit)
 			for i=1, debuffs.createdIcons do
 				button = debuffs[i]
 				button:EnableMouse(false)
-				if not button:IsVisible() then break end
+				if not button._shown then break end
 				button:ClearAllPoints()
 				if i == 1 then
 					button:SetPoint("BOTTOMLEFT", element, "BOTTOMLEFT", 1, 1 + (element.debuffOffset or 0))
@@ -981,14 +967,14 @@ local function Update(self, event, unit)
 					button:SetPoint("LEFT", firstButton, "RIGHT", element.spacing, 0)
 					firstButton = button
 				else
-					button:Hide()
+					setShown(button, false)
 				end
 			end
 		else
 			for i=1, debuffs.createdIcons do
 				button = debuffs[i]
 				button:EnableMouse(false)
-				if not button:IsVisible() then break end
+				if not button._shown then break end
 				button:ClearAllPoints()
 				if i == 1 then
 					button:SetPoint("TOPLEFT", element, "LEFT", 1, (element.debuffOffset or 0))
@@ -999,7 +985,7 @@ local function Update(self, event, unit)
 					button:SetPoint("TOPLEFT", firstButton, "TOPRIGHT", element.spacing, 0)
 					firstButton = button
 				else
-					button:Hide()
+					setShown(button, false)
 				end
 			end
 		end

@@ -59,6 +59,32 @@ local function compileAuraEntries(nameID)
 	return compiled
 end
 
+local function compileExactAuraEntries(nameID)
+	local compiled = { exact = true, ids = {}, names = {} }
+	local order = 0
+	for _, spell in ipairs(nameID) do
+		if type(spell) ~= "string" then
+			spell = tostring(spell)
+		end
+		local trimmed = strtrim(spell)
+		if trimmed ~= "" then
+			order = order + 1
+			local id = tonumber(trimmed)
+			if id then
+				if not compiled.ids[id] then
+					compiled.ids[id] = order
+				end
+			else
+				local lower = strlower(trimmed)
+				if not compiled.names[lower] then
+					compiled.names[lower] = order
+				end
+			end
+		end
+	end
+	return compiled
+end
+
 local function compileMissingEntries(nameID)
 	local compiled = { groups = {} }
 	for _, spellGroup in ipairs(nameID) do
@@ -84,14 +110,28 @@ local function compileMissingEntries(nameID)
 end
 
 local function ensureCompiled(indicator)
+	local matchMode = indicator.matchMode or "partial"
+	if indicator.type == "aura" or indicator.type == "ownaura" then
+		if indicator._compiled and indicator._compileMatchMode == matchMode then
+			if matchMode == "exact" or indicator._compileGen == AuraCache.generation then
+				return indicator._compiled
+			end
+		end
+		if indicator.nameID then
+			if matchMode == "exact" then
+				indicator._compiled = compileExactAuraEntries(indicator.nameID)
+			else
+				indicator._compiled = compileAuraEntries(indicator.nameID)
+			end
+			indicator._compileMatchMode = matchMode
+			indicator._compileGen = AuraCache.generation
+		end
+		return indicator._compiled
+	end
 	if indicator._compiled and indicator._compileGen == AuraCache.generation then
 		return indicator._compiled
 	end
-	if indicator.type == "aura" or indicator.type == "ownaura" then
-		if indicator.nameID then
-			indicator._compiled = compileAuraEntries(indicator.nameID)
-		end
-	elseif indicator.type == "missing" and indicator.nameID then
+	if indicator.type == "missing" and indicator.nameID then
 		indicator._compiled = compileMissingEntries(indicator.nameID)
 	end
 	indicator._compileGen = AuraCache.generation
@@ -150,6 +190,60 @@ local function checkAuraSnap(snap, compiled, playeronly)
 			return record
 		end
 	end
+end
+
+local function exactMatchOrder(compiled, record)
+	local order = compiled.ids[record.spellID]
+	local nameOrder = record.lowerName and compiled.names[record.lowerName]
+	if nameOrder and (not order or nameOrder < order) then
+		return nameOrder
+	end
+	return order
+end
+
+local function checkExactAuraSnap(snap, compiled, playeronly)
+	if not compiled or not compiled.exact then
+		return
+	end
+	local best, bestOrder
+	for i = 1, snap.helpfulCount do
+		local record = snap.helpful[i]
+		if not playeronly or record.isPlayer then
+			local order = exactMatchOrder(compiled, record)
+			if order and (not bestOrder or order < bestOrder) then
+				best = record
+				bestOrder = order
+				if order == 1 then
+					return record
+				end
+			end
+		end
+	end
+	for i = 1, snap.harmfulCount do
+		local record = snap.harmful[i]
+		if not playeronly or record.isPlayer then
+			local order = exactMatchOrder(compiled, record)
+			if order and (not bestOrder or order < bestOrder) then
+				best = record
+				bestOrder = order
+				if order == 1 then
+					return record
+				end
+			end
+		end
+	end
+	return best
+end
+
+local function resolveAuraSnap(indicator, snap, playeronly)
+	local compiled = ensureCompiled(indicator)
+	if not compiled then
+		return
+	end
+	if (indicator.matchMode or "partial") == "exact" then
+		return checkExactAuraSnap(snap, compiled, playeronly)
+	end
+	return checkAuraSnap(snap, compiled, playeronly)
 end
 
 local function checkDispelSnap(snap, index)
@@ -304,11 +398,11 @@ local function updateAuraIndicators(element, snap)
 
 	for _, indicator in ipairs(element._aura) do
 		if indicator.type == "aura" and indicator.nameID then
-			if paintRecord(indicator, checkAuraSnap(snap, ensureCompiled(indicator), false), true, true) then
+			if paintRecord(indicator, resolveAuraSnap(indicator, snap, false), true, true) then
 				hasAura = true
 			end
 		elseif indicator.type == "ownaura" and indicator.nameID then
-			if paintRecord(indicator, checkAuraSnap(snap, ensureCompiled(indicator), true), true) then
+			if paintRecord(indicator, resolveAuraSnap(indicator, snap, true), true) then
 				hasOwn = true
 			end
 		elseif indicator.type == "dispel" then
@@ -397,7 +491,7 @@ local function Enable(self)
 		element._bucketsDirty = true
 
 		for name, indicator in pairs(element) do
-			if type(indicator) == "table" then
+			if type(indicator) == "table" and indicator.texture then
 				indicator._shown = false
 				indicator:Hide()
 				if not indicator.cd then
