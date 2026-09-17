@@ -10,6 +10,13 @@ local ACR = LibStub("AceConfigRegistry-3.0", true)
 local SML = LibStub:GetLibrary("LibSharedMedia-3.0")
 local oUF = LUF.oUF
 local ArenaAndFocusExists = not LUF.isClassic
+local VALID_SQUARE_TYPES = {
+	aggro = true,
+	aura = true,
+	ownaura = true,
+	dispel = true,
+	missing = true,
+}
 
 -- Disable oUFs Anti Blizzard function since we make our own
 oUF.DisableBlizzard = function() end
@@ -1155,6 +1162,9 @@ function LUF.ApplySettings(frame)
 			local indicator = frame.RaidStatusIndicators[name]
 			if squarecfg[name].enabled then
 				isEnabled = true
+				if not VALID_SQUARE_TYPES[squarecfg[name].type] then
+					squarecfg[name].type = LUF.defaults.profile.units.player.squares[name].type
+				end
 				indicator.type = squarecfg[name].type
 				indicator.matchMode = squarecfg[name].matchMode or "partial"
 				indicator.showTexture = squarecfg[name].texture

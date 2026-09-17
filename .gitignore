@@ -1,6 +1,4 @@
 libs/**
-!libs/LibVexation-1.0
-!libs/LibVexation-1.0/**
 !libs/oUF_Plugins
 !libs/oUF_Plugins/**
 !libs/oUF
