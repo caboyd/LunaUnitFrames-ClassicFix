@@ -33,9 +33,13 @@ local function newSnapshot()
 		helpfulByID = {}, harmfulByID = {},
 		helpfulByIDPlayer = {}, harmfulByIDPlayer = {},
 		dispels = {},
-		helpfulCount = 0, harmfulCount = 0, dispelCount = 0,
+		classHelpful = {},
+		classHelpfulByID = {},
+		helpfulCount = 0, harmfulCount = 0, dispelCount = 0, classHelpfulCount = 0,
 		status = "empty", -- "scanned" | "held" | "empty"
 		done = false, -- true after a trusted scan (or one deferred retry)
+		wantClassFilter = false,
+		classFilterFilled = false,
 		canAssist = false, isFriend = false, isManaUser = false,
 		isConnected = false, isVisible = false,
 	}
@@ -74,6 +78,9 @@ local function releaseSnapshotRecords(snap)
 	for i = 1, snap.dispelCount do
 		snap.dispels[i] = nil
 	end
+	for i = 1, snap.classHelpfulCount or 0 do
+		snap.classHelpful[i] = nil
+	end
 end
 
 local function resetAuraLists(snap)
@@ -81,11 +88,14 @@ local function resetAuraLists(snap)
 	snap.helpfulCount = 0
 	snap.harmfulCount = 0
 	snap.dispelCount = 0
+	snap.classHelpfulCount = 0
+	snap.classFilterFilled = false
 	snap.firstDebuffType = nil
 	table.wipe(snap.helpfulByID)
 	table.wipe(snap.harmfulByID)
 	table.wipe(snap.helpfulByIDPlayer)
 	table.wipe(snap.harmfulByIDPlayer)
+	table.wipe(snap.classHelpfulByID)
 end
 
 local function dropSnapshot(guid)
@@ -164,6 +174,7 @@ local function fillRecord(record, index, name, icon, count, debuffType, duration
 	record.caster = caster
 	record.isStealable = isStealable
 	record.isPlayer = caster == "player" or caster == "vehicle" or (caster and UnitIsUnit(caster, "player")) or false
+	record.isClass = false
 	record.spellID = spellID
 	record.index = index
 end
@@ -224,6 +235,62 @@ local function enrichSnapshotLCD(snap, unit)
 	end
 end
 
+local function aliasClassHelpful(snap, record)
+	record.isClass = true
+	local count = snap.classHelpfulCount + 1
+	snap.classHelpfulCount = count
+	snap.classHelpful[count] = record
+	local spellID = record.spellID
+	if spellID and not snap.classHelpfulByID[spellID] then
+		snap.classHelpfulByID[spellID] = record
+	end
+end
+
+local function findUntaggedHelpful(snap, spellID, name)
+	if spellID then
+		for i = 1, snap.helpfulCount do
+			local record = snap.helpful[i]
+			if not record.isClass and record.spellID == spellID then
+				return record
+			end
+		end
+	end
+	if name then
+		local lower = lowerName(name)
+		for i = 1, snap.helpfulCount do
+			local record = snap.helpful[i]
+			if not record.isClass and record.lowerName == lower then
+				return record
+			end
+		end
+	end
+	return nil
+end
+
+local function fillSnapshotClassHelpful(snap, unit, src)
+	if snap.status == "empty" or snap.classFilterFilled or not snap.wantClassFilter then
+		return
+	end
+	if AuraCache.test and AuraCache.test.active then
+		for i = 1, snap.helpfulCount do
+			aliasClassHelpful(snap, snap.helpful[i])
+		end
+		snap.classFilterFilled = true
+		return
+	end
+	for i = 1, 40 do
+		local name, _, _, _, _, _, _, _, _, spellID = src(unit, i, "HELPFUL|RAID")
+		if not name then
+			break
+		end
+		local record = findUntaggedHelpful(snap, spellID, name)
+		if record then
+			aliasClassHelpful(snap, record)
+		end
+	end
+	snap.classFilterFilled = true
+end
+
 local function rebuildSnapshot(guid, unit)
 	dirtyGUIDs[guid] = nil
 	local mode = auraScanMode(unit)
@@ -260,6 +327,7 @@ local function rebuildSnapshot(guid, unit)
 	scanAuras(snap, unit, src, "HELPFUL", false)
 	scanAuras(snap, unit, src, "HARMFUL", true)
 	enrichSnapshotLCD(snap, unit)
+	fillSnapshotClassHelpful(snap, unit, src)
 	snap.status = (mode == "hold") and "held" or "scanned"
 	-- Empty scans during reload are not trusted; WhenReady retries once.
 	if snap.helpfulCount > 0 or snap.harmfulCount > 0 then
@@ -463,7 +531,7 @@ do
 	end
 end
 
-function AuraCache:Touch(unit)
+function AuraCache:Touch(unit, opts)
 	if not unit then
 		return EMPTY_SNAP
 	end
@@ -476,6 +544,9 @@ function AuraCache:Touch(unit)
 	local guid = resolveTouchGUID(unit)
 	if not guid then
 		return EMPTY_SNAP
+	end
+	if opts and opts.classFilter then
+		acquireSnapshot(guid).wantClassFilter = true
 	end
 	local snap = snapshots[guid]
 	local needsRebuild = not snap or dirtyGUIDs[guid] or snap.generation ~= AuraCache.generation
@@ -495,7 +566,12 @@ function AuraCache:Touch(unit)
 	if needsRebuild then
 		rebuildSnapshot(guid, unit)
 	end
-	return snapshots[guid] or EMPTY_SNAP
+	snap = snapshots[guid]
+	if snap and snap.wantClassFilter and not snap.classFilterFilled and snap.status ~= "empty" then
+		local src = auraSource or ns.UnitAura
+		fillSnapshotClassHelpful(snap, unit, src)
+	end
+	return snap or EMPTY_SNAP
 end
 
 function AuraCache:IsReady(unit)

@@ -531,9 +531,7 @@ local function passesSpellFilter(spellFilter, spellMode, matchBy, spellID, lower
 	return true
 end
 
-local function updateAurasFromSnapshot(element, unit, snap, isDebuff, filterMode, maxAuras, filter, currentSlot)
-	local list = isDebuff and snap.harmful or snap.helpful
-	local count = isDebuff and snap.harmfulCount or snap.helpfulCount
+local function updateAurasFromSnapshot(element, unit, list, count, isDebuff, filterMode, maxAuras, filter, currentSlot)
 	local spellFilter = isDebuff and element.debuffSpellFilter or element.buffSpellFilter
 	local spellMode = isDebuff and element.debuffSpellFilterMode or element.buffSpellFilterMode
 	local matchBy = isDebuff and element.debuffSpellFilterMatch or element.buffSpellFilterMatch
@@ -553,31 +551,6 @@ local function updateAurasFromSnapshot(element, unit, snap, isDebuff, filterMode
 	return currentSlot
 end
 
--- HELPFUL|RAID membership is a Blizzard-side filter not derivable from cached records.
-local function updateAurasFromRaidFilter(element, unit, isDebuff, filterMode, maxAuras, filter, currentSlot)
-	local raidFilter = (isDebuff and "HARMFUL" or "HELPFUL") .. "|RAID"
-	local spellFilter = isDebuff and element.debuffSpellFilter or element.buffSpellFilter
-	local spellMode = isDebuff and element.debuffSpellFilterMode or element.buffSpellFilterMode
-	local matchBy = isDebuff and element.debuffSpellFilterMatch or element.buffSpellFilterMatch
-	for i = 1, 40 do
-		if currentSlot > maxAuras then
-			break
-		end
-		local name, _, _, _, _, _, caster, _, _, spellID = ns.UnitAura(unit, i, raidFilter)
-		if name or element.forceShow then
-			if (filterMode ~= 2 or caster == "player")
-				and (element.forceShow or passesSpellFilter(spellFilter, spellMode, matchBy, spellID, name and strlower(name)))
-			then
-				updateIcon(element, unit, nil, currentSlot, filter, isDebuff, i)
-				currentSlot = currentSlot + 1
-			end
-		else
-			break
-		end
-	end
-	return currentSlot
-end
-
 local function UpdateAuras(self, event, unit)
 	if self.unit ~= unit then return end
 
@@ -586,7 +559,7 @@ local function UpdateAuras(self, event, unit)
 
 	if element.PreUpdate then element:PreUpdate(unit) end
 
-	local snap = AuraCache:Touch(unit)
+	local snap = AuraCache:Touch(unit, { classFilter = element.buffFilter == 3 })
 	if not AuraCache:IsReady(unit) and not element._waitingCache then
 		element._waitingCache = true
 		AuraCache:WhenReady(unit, function()
@@ -604,16 +577,16 @@ local function UpdateAuras(self, event, unit)
 	local currentSlot = 1
 
 	if element.buffs then
-		-- Offline UnitAura still returns paladin/class auras; skip that scan.
-		if element.buffFilter == 3 and snap.status ~= "empty" and (UnitCanAssist("player", unit) or not UnitIsVisible(unit)) then
-			currentSlot = updateAurasFromRaidFilter(element, unit, false, element.buffFilter, maxBuffs, buffFilter .. "|RAID", currentSlot)
-		elseif element.forceShow then
+		if element.forceShow then
 			for i = 1, maxBuffs do
 				updateIcon(element, unit, nil, currentSlot, buffFilter, false, i)
 				currentSlot = currentSlot + 1
 			end
+		elseif element.buffFilter == 3 and snap.status ~= "empty"
+			and (snap.canAssist or not snap.isVisible) then
+			currentSlot = updateAurasFromSnapshot(element, unit, snap.classHelpful, snap.classHelpfulCount or 0, false, 3, maxBuffs, buffFilter, currentSlot)
 		else
-			currentSlot = updateAurasFromSnapshot(element, unit, snap, false, element.buffFilter, maxBuffs, buffFilter, currentSlot)
+			currentSlot = updateAurasFromSnapshot(element, unit, snap.helpful, snap.helpfulCount, false, element.buffFilter, maxBuffs, buffFilter, currentSlot)
 		end
 	end
 
@@ -634,15 +607,15 @@ local function UpdateAuras(self, event, unit)
 	local debuffs = element.debuffFrame
 	currentSlot = 1
 	if element.debuffs then
-		if element.debuffFilter == 3 then
-			currentSlot = updateAurasFromRaidFilter(element, unit, true, element.debuffFilter, maxDebuffs, debuffFilter .. "|RAID", currentSlot)
-		elseif element.forceShow then
+		if element.forceShow then
 			for i = 1, maxDebuffs do
 				updateIcon(element, unit, nil, currentSlot, debuffFilter, true, i)
 				currentSlot = currentSlot + 1
 			end
+		elseif element.debuffFilter == 3 then
+			currentSlot = updateAurasFromSnapshot(element, unit, snap.dispels, snap.dispelCount or 0, true, 3, maxDebuffs, debuffFilter, currentSlot)
 		else
-			currentSlot = updateAurasFromSnapshot(element, unit, snap, true, element.debuffFilter, maxDebuffs, debuffFilter, currentSlot)
+			currentSlot = updateAurasFromSnapshot(element, unit, snap.harmful, snap.harmfulCount, true, element.debuffFilter, maxDebuffs, debuffFilter, currentSlot)
 		end
 	end
 
