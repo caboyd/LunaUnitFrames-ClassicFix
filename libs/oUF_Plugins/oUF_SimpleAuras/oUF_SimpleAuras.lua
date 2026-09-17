@@ -207,9 +207,8 @@ local function setCooldown(button, element, shown, start, duration)
 		button._cdStart = start
 		button._cdDur = duration
 		button.cd:SetCooldown(start, duration)
-		if not element.disableBCC and not (_G.OmniCC and not element.disableOCC) then
-			button._bccSize = nil
-		end
+		-- Allow a next-frame FontString lookup if numbers weren't created yet.
+		button._bccRetry = nil
 	end
 end
 
@@ -267,17 +266,18 @@ local function setButtonSize(button, size)
 end
 
 local function CheckBlizzardCooldownTextOverflow(element, button)
-	--OmniCC always prevents blizzard timers so we dont need to do
+	-- OmniCC always prevents blizzard timers so we dont need to do
 	-- this if it's installed and not disabled
-    if element.disableBCC or (_G.OmniCC and not element.disableOCC) then return end
+	if element.disableBCC or (_G.OmniCC and not element.disableOCC) then return end
+	if not button._cdShown then return end
 
 	local button_width = button._size or button:GetWidth()
 	if button._bccSize == button_width then return end
-	button._bccSize = button_width
 
 	if not button.cdFontString then
-		-- Cache the cooldown text font string
-		for _, region in ipairs({ button.cd:GetRegions() }) do
+		local regions = { button.cd:GetRegions() }
+		for i = 1, #regions do
+			local region = regions[i]
 			if region:GetObjectType() == "FontString" then
 				button.cdFontString = region
 				break
@@ -286,23 +286,26 @@ local function CheckBlizzardCooldownTextOverflow(element, button)
 	end
 
 	local fs = button.cdFontString
+	if not fs then
+		-- Cooldown numbers often don't exist until the frame after SetCooldown.
+		if not button._bccRetry then
+			button._bccRetry = true
+			C_Timer.After(0, function()
+				CheckBlizzardCooldownTextOverflow(element, button)
+			end)
+		end
+		return
+	end
+	button._bccRetry = nil
+	button._bccSize = button_width
 
-	local _, oldFontSize, _ = fs:GetFont()
+	local fontName, oldFontSize = fs:GetFont()
 	local fontSize = math.max(8, button_width^0.95 * 0.42)
-
-	if(oldFontSize ~= fontSize) then
-		--only update when font size changed
-		local fontName = fs:GetFont()
-		fs:SetFont(fontName, fontSize, 'OUTLINE')
+	if oldFontSize ~= fontSize then
+		fs:SetFont(fontName, fontSize, "OUTLINE")
 	end
 
-	local text_width = fs:GetStringWidth()
-
-    if (button_width < 18.5)  then
-        button.cd:SetHideCountdownNumbers(true)
-    else
-        button.cd:SetHideCountdownNumbers(false)
-    end
+	button.cd:SetHideCountdownNumbers(button_width < 18.5)
 end
 
 local function UpdateTooltip(self)
@@ -443,6 +446,12 @@ local function updateIcon(element, unit, record, position, filter, isDebuff, ind
 	if not button then return end
 
 	local isPlayer = caster == "player" or caster == "vehicle"
+	-- Size/font can change from options without the aura itself changing.
+	local newSize = getIconSize(element, isDebuff, isPlayer)
+	local sizeChanged = button._size ~= newSize
+	setCount(button, count or 0, element.buffcountfontsize or 10)
+	setButtonSize(button, newSize)
+
 	if button._spellID == (record and record.spellID)
 		and button._countVal == (count or 0)
 		and button._exp == expiration
@@ -452,6 +461,9 @@ local function updateIcon(element, unit, record, position, filter, isDebuff, ind
 		and button._auraIndex == index
 		and button._shown
 	then
+		if sizeChanged then
+			CheckBlizzardCooldownTextOverflow(element, button)
+		end
 		return
 	end
 
@@ -487,9 +499,6 @@ local function updateIcon(element, unit, record, position, filter, isDebuff, ind
 		setIconTexture(button, texture)
 	end
 
-	setCount(button, count or 0, element.buffcountfontsize or 10)
-	setButtonSize(button, getIconSize(element, isDebuff, isPlayer))
-
 	if button:GetID() ~= index then
 		button:SetID(index)
 	end
@@ -498,7 +507,9 @@ local function updateIcon(element, unit, record, position, filter, isDebuff, ind
 	if element.PostUpdateIcon then
 		element:PostUpdateIcon(unit, button, index, position, duration, expiration, debuffType, isStealable)
 	end
-	CheckBlizzardCooldownTextOverflow(element, button)
+	if showTimer then
+		CheckBlizzardCooldownTextOverflow(element, button)
+	end
 end
 
 local function hideTrailingAuras(auraFrame, currentSlot)
