@@ -61,17 +61,24 @@ end
 
 local function compileExactAuraEntries(nameID)
 	local compiled = { exact = true, ids = {}, names = {} }
+	local order = 0
 	for _, spell in ipairs(nameID) do
 		if type(spell) ~= "string" then
 			spell = tostring(spell)
 		end
 		local trimmed = strtrim(spell)
 		if trimmed ~= "" then
+			order = order + 1
 			local id = tonumber(trimmed)
 			if id then
-				compiled.ids[id] = true
+				if not compiled.ids[id] then
+					compiled.ids[id] = order
+				end
 			else
-				compiled.names[strlower(trimmed)] = true
+				local lower = strlower(trimmed)
+				if not compiled.names[lower] then
+					compiled.names[lower] = order
+				end
 			end
 		end
 	end
@@ -185,32 +192,47 @@ local function checkAuraSnap(snap, compiled, playeronly)
 	end
 end
 
-local function recordMatchesExact(compiled, record)
-	if not record then
-		return false
+local function exactMatchOrder(compiled, record)
+	local order = compiled.ids[record.spellID]
+	local nameOrder = record.lowerName and compiled.names[record.lowerName]
+	if nameOrder and (not order or nameOrder < order) then
+		return nameOrder
 	end
-	if compiled.ids[record.spellID] then
-		return true
-	end
-	return record.lowerName and compiled.names[record.lowerName]
+	return order
 end
 
 local function checkExactAuraSnap(snap, compiled, playeronly)
 	if not compiled or not compiled.exact then
 		return
 	end
-	for i = 1, snap.harmfulCount do
-		local record = snap.harmful[i]
-		if (not playeronly or record.isPlayer) and recordMatchesExact(compiled, record) then
-			return record
-		end
-	end
+	local best, bestOrder
 	for i = 1, snap.helpfulCount do
 		local record = snap.helpful[i]
-		if (not playeronly or record.isPlayer) and recordMatchesExact(compiled, record) then
-			return record
+		if not playeronly or record.isPlayer then
+			local order = exactMatchOrder(compiled, record)
+			if order and (not bestOrder or order < bestOrder) then
+				best = record
+				bestOrder = order
+				if order == 1 then
+					return record
+				end
+			end
 		end
 	end
+	for i = 1, snap.harmfulCount do
+		local record = snap.harmful[i]
+		if not playeronly or record.isPlayer then
+			local order = exactMatchOrder(compiled, record)
+			if order and (not bestOrder or order < bestOrder) then
+				best = record
+				bestOrder = order
+				if order == 1 then
+					return record
+				end
+			end
+		end
+	end
+	return best
 end
 
 local function resolveAuraSnap(indicator, snap, playeronly)
@@ -469,7 +491,7 @@ local function Enable(self)
 		element._bucketsDirty = true
 
 		for name, indicator in pairs(element) do
-			if type(indicator) == "table" then
+			if type(indicator) == "table" and indicator.texture then
 				indicator._shown = false
 				indicator:Hide()
 				if not indicator.cd then
