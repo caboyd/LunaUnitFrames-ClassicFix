@@ -560,15 +560,6 @@ local function UpdateAuras(self, event, unit)
 	if element.PreUpdate then element:PreUpdate(unit) end
 
 	local snap = AuraCache:Touch(unit, { classFilter = element.buffFilter == 3 })
-	if not AuraCache:IsReady(unit) and not element._waitingCache then
-		element._waitingCache = true
-		AuraCache:WhenReady(unit, function()
-			element._waitingCache = nil
-			if element.ForceUpdate then
-				element:ForceUpdate()
-			end
-		end)
-	end
 	local maxBuffs = element.maxBuffs or 32
 	local maxDebuffs = element.maxDebuffs or 40
 	local buffFilter = "HELPFUL"
@@ -687,7 +678,7 @@ local function Update(self, event, unit)
 				button = buffs[i]
 				button:EnableMouse(true)
 				buttonSize = button:GetWidth()
-				if not button:IsVisible() then break end
+				if not button._shown then break end
 				button:ClearAllPoints()
 				if i == 1 then
 					button:SetPoint("TOPLEFT", buffs, "TOPLEFT")
@@ -713,7 +704,7 @@ local function Update(self, event, unit)
 			for i=1, buffs.createdIcons do
 				button = buffs[i]
 				button:EnableMouse(true)
-				if not button:IsVisible() then break end
+				if not button._shown then break end
 				buttonSize = button:GetWidth()
 				button:ClearAllPoints()
 				if i == 1 then
@@ -740,7 +731,7 @@ local function Update(self, event, unit)
 			for i=1, buffs.createdIcons do
 				button = buffs[i]
 				button:EnableMouse(true)
-				if not button:IsVisible() then break end
+				if not button._shown then break end
 				buttonSize = button:GetWidth()
 				button:ClearAllPoints()
 				if i == 1 then
@@ -767,7 +758,7 @@ local function Update(self, event, unit)
 			for i=1, buffs.createdIcons do
 				button = buffs[i]
 				button:EnableMouse(true)
-				if not button:IsVisible() then break end
+				if not button._shown then break end
 				buttonSize = button:GetWidth()
 				button:ClearAllPoints()
 				if i == 1 then
@@ -794,7 +785,7 @@ local function Update(self, event, unit)
 			for i=1, buffs.createdIcons do
 				button = buffs[i]
 				button:EnableMouse(false)
-				if not button:IsVisible() then break end
+				if not button._shown then break end
 				button:ClearAllPoints()
 				if i == 1 then
 					button:SetPoint("TOPLEFT", element, "TOPLEFT", 1, -1 + (element.buffOffset or 0))
@@ -805,7 +796,7 @@ local function Update(self, event, unit)
 					button:SetPoint("LEFT", firstButton, "RIGHT", element.spacing, 0)
 					firstButton = button
 				else
-					button:Hide()
+					setShown(button, false)
 				end
 			end
 		else
@@ -813,7 +804,7 @@ local function Update(self, event, unit)
 			for i=1, buffs.createdIcons do
 				button = buffs[i]
 				button:EnableMouse(false)
-				if not button:IsVisible() then break end
+				if not button._shown then break end
 				button:ClearAllPoints()
 				if i == 1 then
 					button:SetPoint("BOTTOMLEFT", element, "LEFT", 1, (element.buffOffset or 0))
@@ -824,7 +815,7 @@ local function Update(self, event, unit)
 					button:SetPoint("BOTTOMLEFT", firstButton, "BOTTOMRIGHT", element.spacing, 0)
 					firstButton = button
 				else
-					button:Hide()
+					setShown(button, false)
 				end
 			end
 		end
@@ -847,7 +838,7 @@ local function Update(self, event, unit)
 			for i=1, debuffs.createdIcons do
 				button = debuffs[i]
 				button:EnableMouse(true)
-				if not button:IsVisible() then break end
+				if not button._shown then break end
 				buttonSize = button:GetWidth()
 				button:ClearAllPoints()
 				if i == 1 then
@@ -874,7 +865,7 @@ local function Update(self, event, unit)
 			for i=1, debuffs.createdIcons do
 				button = debuffs[i]
 				button:EnableMouse(true)
-				if not button:IsVisible() then break end
+				if not button._shown then break end
 				buttonSize = button:GetWidth()
 				button:ClearAllPoints()
 				if i == 1 then
@@ -901,7 +892,7 @@ local function Update(self, event, unit)
 			for i=1, debuffs.createdIcons do
 				button = debuffs[i]
 				button:EnableMouse(true)
-				if not button:IsVisible() then break end
+				if not button._shown then break end
 				buttonSize = button:GetWidth()
 				button:ClearAllPoints()
 				if i == 1 then
@@ -928,7 +919,7 @@ local function Update(self, event, unit)
 			for i=1, debuffs.createdIcons do
 				button = debuffs[i]
 				button:EnableMouse(true)
-				if not button:IsVisible() then break end
+				if not button._shown then break end
 				buttonSize = button:GetWidth()
 				button:ClearAllPoints()
 				if i == 1 then
@@ -954,7 +945,7 @@ local function Update(self, event, unit)
 			for i=1, debuffs.createdIcons do
 				button = debuffs[i]
 				button:EnableMouse(false)
-				if not button:IsVisible() then break end
+				if not button._shown then break end
 				button:ClearAllPoints()
 				if i == 1 then
 					button:SetPoint("BOTTOMLEFT", element, "BOTTOMLEFT", 1, 1 + (element.debuffOffset or 0))
@@ -965,14 +956,14 @@ local function Update(self, event, unit)
 					button:SetPoint("LEFT", firstButton, "RIGHT", element.spacing, 0)
 					firstButton = button
 				else
-					button:Hide()
+					setShown(button, false)
 				end
 			end
 		else
 			for i=1, debuffs.createdIcons do
 				button = debuffs[i]
 				button:EnableMouse(false)
-				if not button:IsVisible() then break end
+				if not button._shown then break end
 				button:ClearAllPoints()
 				if i == 1 then
 					button:SetPoint("TOPLEFT", element, "LEFT", 1, (element.debuffOffset or 0))
@@ -983,7 +974,7 @@ local function Update(self, event, unit)
 					button:SetPoint("TOPLEFT", firstButton, "TOPRIGHT", element.spacing, 0)
 					firstButton = button
 				else
-					button:Hide()
+					setShown(button, false)
 				end
 			end
 		end
