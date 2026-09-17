@@ -999,6 +999,72 @@ function LUF:CreateConfig()
 		},
 	}
 
+	local SQUARE_AURA_TYPES = { aura = true, ownaura = true }
+
+	local SQUARE_TYPE_VALUES = {
+		["aggro"] = L["Aggro"],
+		["legacythreat"] = L["Aggro"] .. " (" .. L["targettarget"] .. ")",
+		["aura"] = L["Buff/Debuff"],
+		["ownaura"] = L["Own buff/debuff"],
+		["dispel"] = DISPELS,
+		["missing"] = L["Missing Buff"],
+	}
+
+	local function squareConfig(info)
+		return LUF.db.profile.units[info[#info-3]].squares[info[#info-1]]
+	end
+
+	local function squareIsAuraMatchType(info)
+		return SQUARE_AURA_TYPES[squareConfig(info).type]
+	end
+
+	local function squareUsesExactMatch(info)
+		return squareIsAuraMatchType(info) and squareConfig(info).matchMode == "exact"
+	end
+
+	local SQUARE_MATCH_MODE_VALUES = {
+		["partial"] = L["Partial (slow)"],
+		["exact"] = L["Exact (fast)"],
+	}
+
+	local SQUARE_MATCH_MODE_SORTING = { "partial", "exact" }
+
+	local function squareMatchModeGet(info)
+		if squareConfig(info).matchMode == "exact" then
+			return "exact"
+		end
+		return "partial"
+	end
+
+	local function squareMatchModeSet(info, value)
+		set(info, value == "exact" and "exact" or nil)
+	end
+
+	local function squareValueLabel(info)
+		local squareType = squareConfig(info).type
+		if squareType == "dispel" then
+			return L["IndexOfDispel"]
+		end
+		if squareType == "missing" or squareUsesExactMatch(info) then
+			return L["Name (exact) or ID"]
+		end
+		return L["Name (partial) or ID"]
+	end
+
+	local function squareValueDesc(info)
+		local squareType = squareConfig(info).type
+		if squareType == "dispel" then
+			return L["IndexOfDispelDesc"]
+		end
+		if squareType == "missing" then
+			return L["Name (exact) or ID of the effect to track. Use ; as a logical AND and / as logical OR. Also supports [mana] to only check on mana classes. Example: Arcane Intellect[mana]/Arcane Brilliance[mana];Dampen Magic"]
+		end
+		if squareUsesExactMatch(info) then
+			return L["Name (exact) or ID of the effect to track. Use ; as a seperator for multiple auras"]
+		end
+		return L["Name (partial) or ID of the effect to track. Use ; as a seperator for multiple auras"]
+	end
+
 	local function validateMissingBuffInput(info, value)
 		if LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type ~= "missing" then return true end
 		local spellGroups = {strsplit(";",value)}
@@ -3903,12 +3969,23 @@ function LUF:CreateConfig()
 							desc = L["What the indicator should display."],
 							type = "select",
 							order = 3,
-							values = { ["aggro"] = L["Aggro"], ["legacythreat"] = L["Aggro"].." ("..L["targettarget"]..")", ["aura"] = L["Buff/Debuff"], ["ownaura"] = L["Own buff/debuff"], ["dispel"] = DISPELS, ["missing"] = L["Missing Buff"] },
+							values = SQUARE_TYPE_VALUES,
 							set = function(info, value) set(info,value) LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].value = nil ACR:NotifyChange("LunaUnitFrames") end,
 						},
+						matchMode = {
+							name = L["Match"],
+							desc = L["Exact uses spell ID or full name (fast). Partial matches substrings (slow)."],
+							type = "select",
+							order = 5,
+							values = SQUARE_MATCH_MODE_VALUES,
+							sorting = SQUARE_MATCH_MODE_SORTING,
+							get = squareMatchModeGet,
+							set = squareMatchModeSet,
+							hidden = function(info) return not squareIsAuraMatchType(info) end,
+						},
 						value = {
-							name = function(info) return LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "dispel" and L["IndexOfDispel"] or LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "missing" and L["Name (exact) or ID"] or L["Name (partial) or ID"] end,
-							desc = function(info) return LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "dispel" and L["IndexOfDispelDesc"] or LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "missing" and L["Name (exact) or ID of the effect to track. Use ; as a logical AND and / as logical OR. Also supports [mana] to only check on mana classes. Example: Arcane Intellect[mana]/Arcane Brilliance[mana];Dampen Magic"] or L["Name (partial) or ID of the effect to track. Use ; as a seperator for multiple auras"] end,
+							name = squareValueLabel,
+							desc = squareValueDesc,
 							type = "input",
 							order = 4,
 							hidden = function(info) return LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "aggro" or LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "legacythreat" end,
@@ -3918,14 +3995,14 @@ function LUF:CreateConfig()
 							name = L["Timer"],
 							desc = string.format(L["Enable or disable the %s."],L["Timer"]),
 							type = "toggle",
-							order = 5,
+							order = 6,
 							hidden = function(info) return LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "aggro" or LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "legacythreat" or LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "missing" end,
 						},
 						texture = {
 							name = L["Texture"],
 							desc = L["Show the spell texture instead of its type color."],
 							type = "toggle",
-							order = 6,
+							order = 7,
 							hidden = function(info) return LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "aggro" or LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "legacythreat" end,
 						},
 						x = {
@@ -3934,7 +4011,7 @@ function LUF:CreateConfig()
 							type = "range",
 							min = -50,
 							max = 50,
-							order = 7,
+							order = 8,
 							step = 1,
 						},
 						y = {
@@ -3943,7 +4020,7 @@ function LUF:CreateConfig()
 							type = "range",
 							min = -50,
 							max = 50,
-							order = 8,
+							order = 9,
 							step = 1,
 						},
 					},
@@ -3974,12 +4051,23 @@ function LUF:CreateConfig()
 							desc = L["What the indicator should display."],
 							type = "select",
 							order = 3,
-							values = { ["aggro"] = L["Aggro"], ["legacythreat"] = L["Aggro"].." ("..L["targettarget"]..")", ["aura"] = L["Buff/Debuff"], ["ownaura"] = L["Own buff/debuff"], ["dispel"] = DISPELS, ["missing"] = L["Missing Buff"] },
+							values = SQUARE_TYPE_VALUES,
 							set = function(info, value) set(info,value) LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].value = nil ACR:NotifyChange("LunaUnitFrames") end,
 						},
+						matchMode = {
+							name = L["Match"],
+							desc = L["Exact uses spell ID or full name (fast). Partial matches substrings (slow)."],
+							type = "select",
+							order = 5,
+							values = SQUARE_MATCH_MODE_VALUES,
+							sorting = SQUARE_MATCH_MODE_SORTING,
+							get = squareMatchModeGet,
+							set = squareMatchModeSet,
+							hidden = function(info) return not squareIsAuraMatchType(info) end,
+						},
 						value = {
-							name = function(info) return LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "dispel" and L["IndexOfDispel"] or LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "missing" and L["Name (exact) or ID"] or L["Name (partial) or ID"] end,
-							desc = function(info) return LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "dispel" and L["IndexOfDispelDesc"] or LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "missing" and L["Name (exact) or ID of the effect to track. Use ; as a logical AND and / as logical OR. Also supports [mana] to only check on mana classes. Example: Arcane Intellect[mana]/Arcane Brilliance[mana];Dampen Magic"] or L["Name (partial) or ID of the effect to track. Use ; as a seperator for multiple auras"] end,
+							name = squareValueLabel,
+							desc = squareValueDesc,
 							type = "input",
 							order = 4,
 							hidden = function(info) return LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "aggro" or LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "legacythreat" end,
@@ -3989,14 +4077,14 @@ function LUF:CreateConfig()
 							name = L["Timer"],
 							desc = string.format(L["Enable or disable the %s."],L["Timer"]),
 							type = "toggle",
-							order = 5,
+							order = 6,
 							hidden = function(info) return LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "aggro" or LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "legacythreat" or LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "missing" end,
 						},
 						texture = {
 							name = L["Texture"],
 							desc = L["Show the spell texture instead of its type color."],
 							type = "toggle",
-							order = 6,
+							order = 7,
 							hidden = function(info) return LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "aggro" or LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "legacythreat" end,
 						},
 						x = {
@@ -4005,7 +4093,7 @@ function LUF:CreateConfig()
 							type = "range",
 							min = -50,
 							max = 50,
-							order = 7,
+							order = 8,
 							step = 1,
 						},
 						y = {
@@ -4014,7 +4102,7 @@ function LUF:CreateConfig()
 							type = "range",
 							min = -50,
 							max = 50,
-							order = 8,
+							order = 9,
 							step = 1,
 						},
 					},
@@ -4045,12 +4133,23 @@ function LUF:CreateConfig()
 							desc = L["What the indicator should display."],
 							type = "select",
 							order = 3,
-							values = { ["aggro"] = L["Aggro"], ["legacythreat"] = L["Aggro"].." ("..L["targettarget"]..")", ["aura"] = L["Buff/Debuff"], ["ownaura"] = L["Own buff/debuff"], ["dispel"] = DISPELS, ["missing"] = L["Missing Buff"] },
+							values = SQUARE_TYPE_VALUES,
 							set = function(info, value) set(info,value) LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].value = nil ACR:NotifyChange("LunaUnitFrames") end,
 						},
+						matchMode = {
+							name = L["Match"],
+							desc = L["Exact uses spell ID or full name (fast). Partial matches substrings (slow)."],
+							type = "select",
+							order = 5,
+							values = SQUARE_MATCH_MODE_VALUES,
+							sorting = SQUARE_MATCH_MODE_SORTING,
+							get = squareMatchModeGet,
+							set = squareMatchModeSet,
+							hidden = function(info) return not squareIsAuraMatchType(info) end,
+						},
 						value = {
-							name = function(info) return LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "dispel" and L["IndexOfDispel"] or LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "missing" and L["Name (exact) or ID"] or L["Name (partial) or ID"] end,
-							desc = function(info) return LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "dispel" and L["IndexOfDispelDesc"] or LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "missing" and L["Name (exact) or ID of the effect to track. Use ; as a logical AND and / as logical OR. Also supports [mana] to only check on mana classes. Example: Arcane Intellect[mana]/Arcane Brilliance[mana];Dampen Magic"] or L["Name (partial) or ID of the effect to track. Use ; as a seperator for multiple auras"] end,
+							name = squareValueLabel,
+							desc = squareValueDesc,
 							type = "input",
 							order = 4,
 							hidden = function(info) return LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "aggro" or LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "legacythreat" end,
@@ -4060,14 +4159,14 @@ function LUF:CreateConfig()
 							name = L["Timer"],
 							desc = string.format(L["Enable or disable the %s."],L["Timer"]),
 							type = "toggle",
-							order = 5,
+							order = 6,
 							hidden = function(info) return LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "aggro" or LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "legacythreat" or LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "missing" end,
 						},
 						texture = {
 							name = L["Texture"],
 							desc = L["Show the spell texture instead of its type color."],
 							type = "toggle",
-							order = 6,
+							order = 7,
 							hidden = function(info) return LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "aggro" or LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "legacythreat" end,
 						},
 						x = {
@@ -4076,7 +4175,7 @@ function LUF:CreateConfig()
 							type = "range",
 							min = -50,
 							max = 50,
-							order = 7,
+							order = 8,
 							step = 1,
 						},
 						y = {
@@ -4085,7 +4184,7 @@ function LUF:CreateConfig()
 							type = "range",
 							min = -50,
 							max = 50,
-							order = 8,
+							order = 9,
 							step = 1,
 						},
 					},
@@ -4116,12 +4215,23 @@ function LUF:CreateConfig()
 							desc = L["What the indicator should display."],
 							type = "select",
 							order = 3,
-							values = { ["aggro"] = L["Aggro"], ["legacythreat"] = L["Aggro"].." ("..L["targettarget"]..")", ["aura"] = L["Buff/Debuff"], ["ownaura"] = L["Own buff/debuff"], ["dispel"] = DISPELS, ["missing"] = L["Missing Buff"] },
+							values = SQUARE_TYPE_VALUES,
 							set = function(info, value) set(info,value) LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].value = nil ACR:NotifyChange("LunaUnitFrames") end,
 						},
+						matchMode = {
+							name = L["Match"],
+							desc = L["Exact uses spell ID or full name (fast). Partial matches substrings (slow)."],
+							type = "select",
+							order = 5,
+							values = SQUARE_MATCH_MODE_VALUES,
+							sorting = SQUARE_MATCH_MODE_SORTING,
+							get = squareMatchModeGet,
+							set = squareMatchModeSet,
+							hidden = function(info) return not squareIsAuraMatchType(info) end,
+						},
 						value = {
-							name = function(info) return LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "dispel" and L["IndexOfDispel"] or LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "missing" and L["Name (exact) or ID"] or L["Name (partial) or ID"] end,
-							desc = function(info) return LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "dispel" and L["IndexOfDispelDesc"] or LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "missing" and L["Name (exact) or ID of the effect to track. Use ; as a logical AND and / as logical OR. Also supports [mana] to only check on mana classes. Example: Arcane Intellect[mana]/Arcane Brilliance[mana];Dampen Magic"] or L["Name (partial) or ID of the effect to track. Use ; as a seperator for multiple auras"] end,
+							name = squareValueLabel,
+							desc = squareValueDesc,
 							type = "input",
 							order = 4,
 							hidden = function(info) return LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "aggro" or LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "legacythreat" end,
@@ -4131,14 +4241,14 @@ function LUF:CreateConfig()
 							name = L["Timer"],
 							desc = string.format(L["Enable or disable the %s."],L["Timer"]),
 							type = "toggle",
-							order = 5,
+							order = 6,
 							hidden = function(info) return LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "aggro" or LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "legacythreat" or LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "missing" end,
 						},
 						texture = {
 							name = L["Texture"],
 							desc = L["Show the spell texture instead of its type color."],
 							type = "toggle",
-							order = 6,
+							order = 7,
 							hidden = function(info) return LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "aggro" or LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "legacythreat" end,
 						},
 						x = {
@@ -4147,7 +4257,7 @@ function LUF:CreateConfig()
 							type = "range",
 							min = -50,
 							max = 50,
-							order = 7,
+							order = 8,
 							step = 1,
 						},
 						y = {
@@ -4156,7 +4266,7 @@ function LUF:CreateConfig()
 							type = "range",
 							min = -50,
 							max = 50,
-							order = 8,
+							order = 9,
 							step = 1,
 						},
 					},
@@ -4187,12 +4297,23 @@ function LUF:CreateConfig()
 							desc = L["What the indicator should display."],
 							type = "select",
 							order = 3,
-							values = { ["aggro"] = L["Aggro"], ["legacythreat"] = L["Aggro"].." ("..L["targettarget"]..")", ["aura"] = L["Buff/Debuff"], ["ownaura"] = L["Own buff/debuff"], ["dispel"] = DISPELS, ["missing"] = L["Missing Buff"] },
+							values = SQUARE_TYPE_VALUES,
 							set = function(info, value) set(info,value) LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].value = nil ACR:NotifyChange("LunaUnitFrames") end,
 						},
+						matchMode = {
+							name = L["Match"],
+							desc = L["Exact uses spell ID or full name (fast). Partial matches substrings (slow)."],
+							type = "select",
+							order = 5,
+							values = SQUARE_MATCH_MODE_VALUES,
+							sorting = SQUARE_MATCH_MODE_SORTING,
+							get = squareMatchModeGet,
+							set = squareMatchModeSet,
+							hidden = function(info) return not squareIsAuraMatchType(info) end,
+						},
 						value = {
-							name = function(info) return LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "dispel" and L["IndexOfDispel"] or LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "missing" and L["Name (exact) or ID"] or L["Name (partial) or ID"] end,
-							desc = function(info) return LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "dispel" and L["IndexOfDispelDesc"] or LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "missing" and L["Name (exact) or ID of the effect to track. Use ; as a logical AND and / as logical OR. Also supports [mana] to only check on mana classes. Example: Arcane Intellect[mana]/Arcane Brilliance[mana];Dampen Magic"] or L["Name (partial) or ID of the effect to track. Use ; as a seperator for multiple auras"] end,
+							name = squareValueLabel,
+							desc = squareValueDesc,
 							type = "input",
 							order = 4,
 							hidden = function(info) return LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "aggro" or LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "legacythreat" end,
@@ -4202,14 +4323,14 @@ function LUF:CreateConfig()
 							name = L["Timer"],
 							desc = string.format(L["Enable or disable the %s."],L["Timer"]),
 							type = "toggle",
-							order = 5,
+							order = 6,
 							hidden = function(info) return LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "aggro" or LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "legacythreat" or LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "missing" end,
 						},
 						texture = {
 							name = L["Texture"],
 							desc = L["Show the spell texture instead of its type color."],
 							type = "toggle",
-							order = 6,
+							order = 7,
 							hidden = function(info) return LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "aggro" or LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "legacythreat" end,
 						},
 						x = {
@@ -4218,7 +4339,7 @@ function LUF:CreateConfig()
 							type = "range",
 							min = -50,
 							max = 50,
-							order = 7,
+							order = 8,
 							step = 1,
 						},
 						y = {
@@ -4227,7 +4348,7 @@ function LUF:CreateConfig()
 							type = "range",
 							min = -50,
 							max = 50,
-							order = 8,
+							order = 9,
 							step = 1,
 						},
 					},
@@ -4258,12 +4379,23 @@ function LUF:CreateConfig()
 							desc = L["What the indicator should display."],
 							type = "select",
 							order = 3,
-							values = { ["aggro"] = L["Aggro"], ["legacythreat"] = L["Aggro"].." ("..L["targettarget"]..")", ["aura"] = L["Buff/Debuff"], ["ownaura"] = L["Own buff/debuff"], ["dispel"] = DISPELS, ["missing"] = L["Missing Buff"] },
+							values = SQUARE_TYPE_VALUES,
 							set = function(info, value) set(info,value) LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].value = nil ACR:NotifyChange("LunaUnitFrames") end,
 						},
+						matchMode = {
+							name = L["Match"],
+							desc = L["Exact uses spell ID or full name (fast). Partial matches substrings (slow)."],
+							type = "select",
+							order = 5,
+							values = SQUARE_MATCH_MODE_VALUES,
+							sorting = SQUARE_MATCH_MODE_SORTING,
+							get = squareMatchModeGet,
+							set = squareMatchModeSet,
+							hidden = function(info) return not squareIsAuraMatchType(info) end,
+						},
 						value = {
-							name = function(info) return LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "dispel" and L["IndexOfDispel"] or LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "missing" and L["Name (exact) or ID"] or L["Name (partial) or ID"] end,
-							desc = function(info) return LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "dispel" and L["IndexOfDispelDesc"] or LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "missing" and L["Name (exact) or ID of the effect to track. Use ; as a logical AND and / as logical OR. Also supports [mana] to only check on mana classes. Example: Arcane Intellect[mana]/Arcane Brilliance[mana];Dampen Magic"] or L["Name (partial) or ID of the effect to track. Use ; as a seperator for multiple auras"] end,
+							name = squareValueLabel,
+							desc = squareValueDesc,
 							type = "input",
 							order = 4,
 							hidden = function(info) return LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "aggro" or LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "legacythreat" end,
@@ -4273,14 +4405,14 @@ function LUF:CreateConfig()
 							name = L["Timer"],
 							desc = string.format(L["Enable or disable the %s."],L["Timer"]),
 							type = "toggle",
-							order = 5,
+							order = 6,
 							hidden = function(info) return LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "aggro" or LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "legacythreat" or LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "missing" end,
 						},
 						texture = {
 							name = L["Texture"],
 							desc = L["Show the spell texture instead of its type color."],
 							type = "toggle",
-							order = 6,
+							order = 7,
 							hidden = function(info) return LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "aggro" or LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "legacythreat" end,
 						},
 						x = {
@@ -4289,7 +4421,7 @@ function LUF:CreateConfig()
 							type = "range",
 							min = -50,
 							max = 50,
-							order = 7,
+							order = 8,
 							step = 1,
 						},
 						y = {
@@ -4298,7 +4430,7 @@ function LUF:CreateConfig()
 							type = "range",
 							min = -50,
 							max = 50,
-							order = 8,
+							order = 9,
 							step = 1,
 						},
 					},
@@ -4329,12 +4461,23 @@ function LUF:CreateConfig()
 							desc = L["What the indicator should display."],
 							type = "select",
 							order = 3,
-							values = { ["aggro"] = L["Aggro"], ["legacythreat"] = L["Aggro"].." ("..L["targettarget"]..")", ["aura"] = L["Buff/Debuff"], ["ownaura"] = L["Own buff/debuff"], ["dispel"] = DISPELS, ["missing"] = L["Missing Buff"] },
+							values = SQUARE_TYPE_VALUES,
 							set = function(info, value) set(info,value) LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].value = nil ACR:NotifyChange("LunaUnitFrames") end,
 						},
+						matchMode = {
+							name = L["Match"],
+							desc = L["Exact uses spell ID or full name (fast). Partial matches substrings (slow)."],
+							type = "select",
+							order = 5,
+							values = SQUARE_MATCH_MODE_VALUES,
+							sorting = SQUARE_MATCH_MODE_SORTING,
+							get = squareMatchModeGet,
+							set = squareMatchModeSet,
+							hidden = function(info) return not squareIsAuraMatchType(info) end,
+						},
 						value = {
-							name = function(info) return LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "dispel" and L["IndexOfDispel"] or LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "missing" and L["Name (exact) or ID"] or L["Name (partial) or ID"] end,
-							desc = function(info) return LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "dispel" and L["IndexOfDispelDesc"] or LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "missing" and L["Name (exact) or ID of the effect to track. Use ; as a logical AND and / as logical OR. Also supports [mana] to only check on mana classes. Example: Arcane Intellect[mana]/Arcane Brilliance[mana];Dampen Magic"] or L["Name (partial) or ID of the effect to track. Use ; as a seperator for multiple auras"] end,
+							name = squareValueLabel,
+							desc = squareValueDesc,
 							type = "input",
 							order = 4,
 							hidden = function(info) return LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "aggro" or LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "legacythreat" end,
@@ -4344,14 +4487,14 @@ function LUF:CreateConfig()
 							name = L["Timer"],
 							desc = string.format(L["Enable or disable the %s."],L["Timer"]),
 							type = "toggle",
-							order = 5,
+							order = 6,
 							hidden = function(info) return LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "aggro" or LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "legacythreat" or LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "missing" end,
 						},
 						texture = {
 							name = L["Texture"],
 							desc = L["Show the spell texture instead of its type color."],
 							type = "toggle",
-							order = 6,
+							order = 7,
 							hidden = function(info) return LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "aggro" or LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "legacythreat" end,
 						},
 						x = {
@@ -4360,7 +4503,7 @@ function LUF:CreateConfig()
 							type = "range",
 							min = -50,
 							max = 50,
-							order = 7,
+							order = 8,
 							step = 1,
 						},
 						y = {
@@ -4369,7 +4512,7 @@ function LUF:CreateConfig()
 							type = "range",
 							min = -50,
 							max = 50,
-							order = 8,
+							order = 9,
 							step = 1,
 						},
 					},
@@ -4400,12 +4543,23 @@ function LUF:CreateConfig()
 							desc = L["What the indicator should display."],
 							type = "select",
 							order = 3,
-							values = { ["aggro"] = L["Aggro"], ["legacythreat"] = L["Aggro"].." ("..L["targettarget"]..")", ["aura"] = L["Buff/Debuff"], ["ownaura"] = L["Own buff/debuff"], ["dispel"] = DISPELS, ["missing"] = L["Missing Buff"] },
+							values = SQUARE_TYPE_VALUES,
 							set = function(info, value) set(info,value) LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].value = nil ACR:NotifyChange("LunaUnitFrames") end,
 						},
+						matchMode = {
+							name = L["Match"],
+							desc = L["Exact uses spell ID or full name (fast). Partial matches substrings (slow)."],
+							type = "select",
+							order = 5,
+							values = SQUARE_MATCH_MODE_VALUES,
+							sorting = SQUARE_MATCH_MODE_SORTING,
+							get = squareMatchModeGet,
+							set = squareMatchModeSet,
+							hidden = function(info) return not squareIsAuraMatchType(info) end,
+						},
 						value = {
-							name = function(info) return LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "dispel" and L["IndexOfDispel"] or LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "missing" and L["Name (exact) or ID"] or L["Name (partial) or ID"] end,
-							desc = function(info) return LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "dispel" and L["IndexOfDispelDesc"] or LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "missing" and L["Name (exact) or ID of the effect to track. Use ; as a logical AND and / as logical OR. Also supports [mana] to only check on mana classes. Example: Arcane Intellect[mana]/Arcane Brilliance[mana];Dampen Magic"] or L["Name (partial) or ID of the effect to track. Use ; as a seperator for multiple auras"] end,
+							name = squareValueLabel,
+							desc = squareValueDesc,
 							type = "input",
 							order = 4,
 							hidden = function(info) return LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "aggro" or LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "legacythreat" end,
@@ -4415,14 +4569,14 @@ function LUF:CreateConfig()
 							name = L["Timer"],
 							desc = string.format(L["Enable or disable the %s."],L["Timer"]),
 							type = "toggle",
-							order = 5,
+							order = 6,
 							hidden = function(info) return LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "aggro" or LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "legacythreat" or LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "missing" end,
 						},
 						texture = {
 							name = L["Texture"],
 							desc = L["Show the spell texture instead of its type color."],
 							type = "toggle",
-							order = 6,
+							order = 7,
 							hidden = function(info) return LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "aggro" or LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "legacythreat" end,
 						},
 						x = {
@@ -4431,7 +4585,7 @@ function LUF:CreateConfig()
 							type = "range",
 							min = -50,
 							max = 50,
-							order = 7,
+							order = 8,
 							step = 1,
 						},
 						y = {
@@ -4440,7 +4594,7 @@ function LUF:CreateConfig()
 							type = "range",
 							min = -50,
 							max = 50,
-							order = 8,
+							order = 9,
 							step = 1,
 						},
 					},
@@ -4471,12 +4625,23 @@ function LUF:CreateConfig()
 							desc = L["What the indicator should display."],
 							type = "select",
 							order = 3,
-							values = { ["aggro"] = L["Aggro"], ["legacythreat"] = L["Aggro"].." ("..L["targettarget"]..")", ["aura"] = L["Buff/Debuff"], ["ownaura"] = L["Own buff/debuff"], ["dispel"] = DISPELS, ["missing"] = L["Missing Buff"] },
+							values = SQUARE_TYPE_VALUES,
 							set = function(info, value) set(info,value) LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].value = nil ACR:NotifyChange("LunaUnitFrames") end,
 						},
+						matchMode = {
+							name = L["Match"],
+							desc = L["Exact uses spell ID or full name (fast). Partial matches substrings (slow)."],
+							type = "select",
+							order = 5,
+							values = SQUARE_MATCH_MODE_VALUES,
+							sorting = SQUARE_MATCH_MODE_SORTING,
+							get = squareMatchModeGet,
+							set = squareMatchModeSet,
+							hidden = function(info) return not squareIsAuraMatchType(info) end,
+						},
 						value = {
-							name = function(info) return LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "dispel" and L["IndexOfDispel"] or LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "missing" and L["Name (exact) or ID"] or L["Name (partial) or ID"] end,
-							desc = function(info) return LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "dispel" and L["IndexOfDispelDesc"] or LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "missing" and L["Name (exact) or ID of the effect to track. Use ; as a logical AND and / as logical OR. Also supports [mana] to only check on mana classes. Example: Arcane Intellect[mana]/Arcane Brilliance[mana];Dampen Magic"] or L["Name (partial) or ID of the effect to track. Use ; as a seperator for multiple auras"] end,
+							name = squareValueLabel,
+							desc = squareValueDesc,
 							type = "input",
 							order = 4,
 							hidden = function(info) return LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "aggro" or LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "legacythreat" end,
@@ -4486,14 +4651,14 @@ function LUF:CreateConfig()
 							name = L["Timer"],
 							desc = string.format(L["Enable or disable the %s."],L["Timer"]),
 							type = "toggle",
-							order = 5,
+							order = 6,
 							hidden = function(info) return LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "aggro" or LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "legacythreat" or LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "missing" end,
 						},
 						texture = {
 							name = L["Texture"],
 							desc = L["Show the spell texture instead of its type color."],
 							type = "toggle",
-							order = 6,
+							order = 7,
 							hidden = function(info) return LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "aggro" or LUF.db.profile.units[info[#info-3]].squares[info[#info-1]].type == "legacythreat" end,
 						},
 						x = {
@@ -4502,7 +4667,7 @@ function LUF:CreateConfig()
 							type = "range",
 							min = -50,
 							max = 50,
-							order = 7,
+							order = 8,
 							step = 1,
 						},
 						y = {
@@ -4511,7 +4676,7 @@ function LUF:CreateConfig()
 							type = "range",
 							min = -50,
 							max = 50,
-							order = 8,
+							order = 9,
 							step = 1,
 						},
 					},

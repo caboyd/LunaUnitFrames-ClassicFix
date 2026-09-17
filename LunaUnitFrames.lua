@@ -1156,6 +1156,7 @@ function LUF.ApplySettings(frame)
 			if squarecfg[name].enabled then
 				isEnabled = true
 				indicator.type = squarecfg[name].type
+				indicator.matchMode = squarecfg[name].matchMode or "partial"
 				indicator.showTexture = squarecfg[name].texture
 				indicator.timer = squarecfg[name].timer
 				if indicator.type == "missing" then
